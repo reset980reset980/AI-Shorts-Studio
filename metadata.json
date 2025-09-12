@@ -1,0 +1,5 @@
+{
+  "name": "AI Shorts Studio",
+  "description": "An application to automate the creation of YouTube Shorts, from script generation to video synthesis and uploading.",
+  "requestFramePermissions": []
+}
