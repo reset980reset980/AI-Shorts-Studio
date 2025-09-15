@@ -70,13 +70,19 @@ export const ScriptingTab: React.FC<ScriptingTabProps> = ({ addLog, setScripts, 
       addLog('원문 텍스트를 입력해주세요.', 'ERROR');
       return;
     }
+
+    if (outputText === 'AI 보정 결과가 여기에 표시됩니다.' || !outputText.trim()) {
+      addLog('먼저 "AI보정"을 실행하여 쇼츠 제목을 생성해주세요.', 'ERROR');
+      return;
+    }
+
     setIsLoading(true);
     addLog('YouTube Shorts 대본 생성 시작...');
     try {
       const { generateScriptFromText } = await import('../services/api');
-      // Use the main script prompt for this action
-      const generatedScript = await generateScriptFromText(inputText, settings.scriptPrompt, settings.googleApiKey);
-      const newScript = { ...generatedScript, id: Date.now().toString() };
+      // Use the corrected text as the shorts title
+      const generatedScript = await generateScriptFromText(inputText, outputText, settings);
+      const newScript: Script = { ...generatedScript, id: Date.now().toString(), status: 'pending' };
       setScripts(prevScripts => [...prevScripts, newScript]);
       addLog('대본 생성 완료. 영상편집 탭으로 이동합니다.', 'SUCCESS');
       setActiveTab('영상편집');

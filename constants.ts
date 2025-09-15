@@ -43,5 +43,6 @@ export const MOCK_SCRIPT: Script = {
       imageState: 'pending',
       audioState: 'pending',
     }
-  ]
+  ],
+  status: 'pending',
 };

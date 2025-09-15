@@ -17,6 +17,8 @@ export interface Scene {
   audioState: 'pending' | 'generating' | 'done' | 'error';
 }
 
+export type ScriptStatus = 'pending' | 'rendering' | 'ready' | 'error';
+
 export interface Script {
   id: string; // Added for list management
   channel: string;
@@ -24,6 +26,7 @@ export interface Script {
   shorts_title: string;
   shorts_summary: string;
   scenes: Scene[];
+  status: ScriptStatus;
 }
 
 export interface YouTubeChannel {
@@ -41,6 +44,7 @@ export interface YouTubeVideo {
 
 export interface Settings {
   scriptPrompt: string;
+  imageStyle: string;
   imagePrompt: string;
   shellPrompt: string;
   youtubeTags: string;
@@ -53,4 +57,5 @@ export interface Settings {
   backgroundMusic?: string; // Data URL for the audio
   subtitleFont?: string; // Data URL for the font
   subtitleFontName?: string; // Font family name
+  imageGenerationMode: 'sequential' | 'parallel';
 }

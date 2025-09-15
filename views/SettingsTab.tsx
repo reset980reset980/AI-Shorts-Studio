@@ -8,6 +8,14 @@ interface SettingsTabProps {
   updateSettings: (newSettings: Partial<Settings>) => void;
 }
 
+const stylePresets: Record<string, string> = {
+    '애니풍': 'anime style digital painting, soft realistic illustration, 텍스트는 제외해.',
+    '실사풍': 'realistic photograph, 8k, detailed, cinematic lighting, no text.',
+    '카툰풍': 'vibrant cartoon style, bold outlines, flat colors, no text.',
+    '수채화풍': 'watercolor painting, soft edges, blended colors, artistic, no text.',
+};
+
+
 export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, updateSettings }) => {
   const [localSettings, setLocalSettings] = useState<Settings>(settings);
 
@@ -90,7 +98,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card title="쇼츠 대본 프롬프트 (short_script_prompt.json)">
           <textarea 
-            rows={6}
+            rows={10}
             className="w-full p-2 bg-[#1a1f2e] border border-gray-600 rounded-md"
             value={localSettings.scriptPrompt}
             onChange={(e) => handleLocalChange({ scriptPrompt: e.target.value })}
@@ -98,13 +106,41 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
           <button onClick={() => handleSave(['scriptPrompt'], '쇼츠 대본 프롬프트가 저장되었습니다.')} className="w-full mt-2 py-2 font-semibold bg-blue-600 hover:bg-blue-700 rounded-md">대본 프롬프트 저장</button>
         </Card>
          <Card title="쇼츠 이미지 프롬프트 (short_image.prompt.json)">
-          <textarea 
-            rows={6}
-            className="w-full p-2 bg-[#1a1f2e] border border-gray-600 rounded-md"
-            value={localSettings.imagePrompt}
-            onChange={(e) => handleLocalChange({ imagePrompt: e.target.value })}
-          />
-          <button onClick={() => handleSave(['imagePrompt'], '쇼츠 이미지 프롬프트가 저장되었습니다.')} className="w-full mt-2 py-2 font-semibold bg-blue-600 hover:bg-blue-700 rounded-md">이미지 프롬프트 저장</button>
+            <div className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium mb-2">이미지 스타일 프리셋</label>
+                    <div className="flex flex-wrap gap-2">
+                        {Object.entries(stylePresets).map(([name, value]) => (
+                            <button 
+                                key={name}
+                                onClick={() => handleLocalChange({ imageStyle: value })}
+                                className="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-700 rounded-md transition-colors"
+                            >
+                                {name}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium mb-1">이미지 스타일 (수동 편집 가능)</label>
+                    <input 
+                        type="text" 
+                        className="w-full p-2 bg-[#1a1f2e] border border-gray-600 rounded-md"
+                        value={localSettings.imageStyle}
+                        onChange={(e) => handleLocalChange({ imageStyle: e.target.value })}
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium mb-1">이미지 프롬프트 본문</label>
+                    <textarea 
+                        rows={6}
+                        className="w-full p-2 bg-[#1a1f2e] border border-gray-600 rounded-md"
+                        value={localSettings.imagePrompt}
+                        onChange={(e) => handleLocalChange({ imagePrompt: e.target.value })}
+                    />
+                </div>
+            </div>
+          <button onClick={() => handleSave(['imageStyle', 'imagePrompt'], '쇼츠 이미지 프롬프트가 저장되었습니다.')} className="w-full mt-4 py-2 font-semibold bg-blue-600 hover:bg-blue-700 rounded-md">이미지 프롬프트 저장</button>
         </Card>
       </div>
       
@@ -140,7 +176,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
                     <label className="block text-sm font-medium mb-1">MiniMax T2A v2 JWT Token</label>
                     <div className="flex space-x-2">
                         <input 
-                            type="password" 
+                            type="text" 
                             placeholder="MiniMax JWT Token" 
                             className="flex-grow p-2 bg-[#1a1f2e] border border-gray-600 rounded-md"
                             value={localSettings.minimaxJwt}
@@ -169,7 +205,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
                 <label className="block text-sm font-medium mb-1">Google API Keys</label>
                 <div className="flex space-x-2">
                   <input 
-                    type="password" 
+                    type="text" 
                     value={localSettings.googleApiKey}
                     onChange={(e) => handleLocalChange({ googleApiKey: e.target.value })}
                     className="flex-grow p-2 bg-[#1a1f2e] border border-gray-600 rounded-md" 
@@ -181,7 +217,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
                 <label className="block text-sm font-medium mb-1">Shotstack API Key</label>
                  <div className="flex space-x-2">
                   <input 
-                    type="password" 
+                    type="text" 
                     value={localSettings.shotstackApiKey}
                     onChange={(e) => handleLocalChange({ shotstackApiKey: e.target.value })}
                     className="flex-grow p-2 bg-[#1a1f2e] border border-gray-600 rounded-md" 

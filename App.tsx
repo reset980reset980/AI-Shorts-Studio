@@ -10,6 +10,8 @@ import { TABS } from './constants';
 import { Header } from './components/Header';
 import { getSettings, saveSettings } from './services/api';
 
+const SCRIPTS_STORAGE_KEY = 'ai_shorts_studio_scripts';
+
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('대본입력');
   const [showLogs, setShowLogs] = useState<boolean>(false);
@@ -26,6 +28,61 @@ const App: React.FC = () => {
     setLogs(prevLogs => [newLog, ...prevLogs]);
   }, []);
 
+  // --- 데이터 지속성 (Data Persistence) ---
+  // [현재 구현]
+  // 이 애플리케이션은 현재 웹 브라우저의 'localStorage'를 사용하여 작업 중인 스크립트 데이터를 저장합니다.
+  // 이 방식은 웹 환경에서 사용자가 페이지를 새로고침해도 작업 내용이 사라지지 않도록 해주는 가장 간단하고 표준적인 방법입니다.
+  // 아래의 useEffect 훅들이 이 기능을 담당합니다.
+  //
+  // [향후 데스크톱 앱으로 전환 시]
+  // 만약 이 프로젝트를 Electron이나 Tauri 같은 프레임워크를 사용하여 PC용 데스크톱 애플리케이션으로 패키징하게 될 경우,
+  // 브라우저 저장소인 localStorage 대신 Node.js의 파일 시스템(fs) 모듈을 사용하여 데이터를 실제 파일(.json)로 PC에 저장하는 것이 더 안정적이고 영구적인 방법입니다.
+  //
+  // 다른 AI나 개발자에게 이 전환을 요청할 때, 아래와 같이 명확하게 지시해주세요:
+  //
+  // --- 요청 예시 ---
+  // "현재 localStorage를 사용하고 있는 데이터 저장 방식을, Node.js의 'fs' 모듈을 사용하여 로컬 파일 시스템에 '.json' 파일로 직접 읽고 쓰는 방식으로 변경해주세요."
+  //
+  // --- 전환 후 예상 코드 (예시) ---
+  /*
+  import fs from 'fs'; // Node.js 파일 시스템 모듈 (Electron 환경에서 사용 가능)
+  const SCRIPTS_FILE_PATH = './ai-shorts-scripts.json'; // 저장할 파일 경로
+
+  // 데이터를 파일에서 불러오는 함수
+  const loadScriptsFromFile = () => {
+    try {
+      if (fs.existsSync(SCRIPTS_FILE_PATH)) {
+        const fileContent = fs.readFileSync(SCRIPTS_FILE_PATH, 'utf-8');
+        return JSON.parse(fileContent);
+      }
+    } catch (error) {
+      console.error("스크립트 파일 불러오기 실패:", error);
+    }
+    return []; // 파일이 없거나 오류 발생 시 빈 배열 반환
+  };
+
+  // 데이터를 파일에 저장하는 함수
+  const saveScriptsToFile = (scriptsToSave) => {
+    try {
+      fs.writeFileSync(SCRIPTS_FILE_PATH, JSON.stringify(scriptsToSave, null, 2));
+    } catch (error) {
+      console.error("스크립트 파일 저장 실패:", error);
+    }
+  };
+
+  // React 컴포넌트 내에서...
+  useEffect(() => {
+    const loadedScripts = loadScriptsFromFile();
+    setScripts(loadedScripts);
+  }, []);
+
+  useEffect(() => {
+    if (scripts.length > 0) { // 초기 로딩 시 빈 배열 저장을 방지하는 조건 추가 가능
+        saveScriptsToFile(scripts);
+    }
+  }, [scripts]);
+  */
+
   useEffect(() => {
     addLog('AI Shorts Studio가 시작되었습니다.');
     const loadInitialSettings = async () => {
@@ -38,7 +95,38 @@ const App: React.FC = () => {
         }
     };
     loadInitialSettings();
+
+    // 앱 시작 시 localStorage에서 스크립트 불러오기
+    try {
+      const savedScriptsRaw = localStorage.getItem(SCRIPTS_STORAGE_KEY);
+      if (savedScriptsRaw) {
+          const savedScripts = JSON.parse(savedScriptsRaw);
+          if (Array.isArray(savedScripts) && savedScripts.length > 0) {
+            setScripts(savedScripts);
+            addLog('저장된 스크립트를 성공적으로 불러왔습니다.', 'SUCCESS');
+          }
+      }
+    } catch (error) {
+        addLog('저장된 스크립트를 불러오는 데 실패했습니다.', 'ERROR');
+        localStorage.removeItem(SCRIPTS_STORAGE_KEY); // 손상된 데이터 정리
+    }
+
   }, [addLog]);
+
+  useEffect(() => {
+    // scripts 상태가 변경될 때마다 localStorage에 자동 저장
+    try {
+        if (scripts.length > 0) {
+            localStorage.setItem(SCRIPTS_STORAGE_KEY, JSON.stringify(scripts));
+        } else {
+            // 스크립트가 모두 삭제되면 ("전체 삭제" 등) 저장소에서도 해당 항목 제거
+            localStorage.removeItem(SCRIPTS_STORAGE_KEY);
+        }
+    } catch (error) {
+        addLog('스크립트를 로컬 저장소에 저장하는 데 실패했습니다.', 'ERROR');
+    }
+  }, [scripts, addLog]);
+
 
   const handleSettingsUpdate = async (newSettings: Partial<Settings>) => {
       if (!settings) return;
@@ -71,7 +159,7 @@ const App: React.FC = () => {
       case '유튜브채널':
         return <ChannelsTab addLog={addLog} />;
       case '영상편집':
-        return <EditingTab addLog={addLog} scripts={scripts} setScripts={setScripts} settings={settings} />;
+        return <EditingTab addLog={addLog} scripts={scripts} setScripts={setScripts} settings={settings} updateSettings={handleSettingsUpdate} />;
       case '유튜브 업로드':
         return <UploadTab addLog={addLog} />;
       case '내정보':
