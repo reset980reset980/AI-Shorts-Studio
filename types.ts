@@ -34,6 +34,7 @@ export interface Script {
 
 export interface YouTubeChannel {
   id: string;
+  name: string;
   url: string;
 }
 
@@ -73,4 +74,5 @@ export interface Settings {
   subtitleFontName?: string; // Font family name
   imageGenerationMode: 'sequential' | 'parallel';
   youtube_channels: YouTubeChannelDetails[];
+  youtubeScrapingChannels: YouTubeChannel[];
 }

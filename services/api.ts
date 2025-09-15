@@ -100,7 +100,8 @@ let mockSettings: Settings = {
       email: "test",
       refreshToken: "1//0eUyq0XNIblTpCgYIARAAGA4SNwF-L9IrkakX4lYAxHVp2WPjflgC7lbPP04zCMCV_8-eqtgX7lmNaK_XhNGL0oheptmhjKxSFkA"
     }
-  ]
+  ],
+  youtubeScrapingChannels: [],
 };
 
 export const getSettings = async (): Promise<Settings> => {

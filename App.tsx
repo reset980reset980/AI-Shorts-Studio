@@ -144,7 +144,7 @@ const App: React.FC = () => {
       case '대본입력':
         return <ScriptingTab addLog={addLog} setScripts={setScripts} setActiveTab={setActiveTab} settings={settings} updateSettings={handleSettingsUpdate} />;
       case '유튜브채널':
-        return <ChannelsTab addLog={addLog} />;
+        return <ChannelsTab addLog={addLog} settings={settings} updateSettings={handleSettingsUpdate} />;
       case '영상편집':
         return <EditingTab addLog={addLog} scripts={scripts} setScripts={setScripts} settings={settings} updateSettings={handleSettingsUpdate} />;
       case '유튜브 업로드':
