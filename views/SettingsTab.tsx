@@ -65,7 +65,20 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
     addLog(`${apiName} API 발급 페이지로 이동합니다.`, 'INFO');
     window.open(url, '_blank');
   };
+
+  const handleCheckIp = () => {
+    const url = 'https://search.naver.com/search.naver?where=nexearch&query=내+ip';
+    window.open(url, '_blank', 'noopener,noreferrer');
+    addLog('네이버 IP 주소 조회 페이지를 엽니다.', 'INFO');
+  };
   
+  const handleCheckVoice = () => {
+    const url = 'https://www.minimax.io/audio/text-to-speech';
+    // Open in a new popup window with specific dimensions to mimic the user's screenshot
+    window.open(url, '_blank', 'noopener,noreferrer,width=800,height=700');
+    addLog('MiniMax 음성 모델 테스트 페이지를 엽니다.', 'INFO');
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, fileType: 'image' | 'audio' | 'font') => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -197,6 +210,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
                             <option>Korean_SassyGirl</option>
                             <option>Korean_SweetGirl</option>
                         </select>
+                        <button onClick={handleCheckVoice} className="px-4 py-2 text-sm bg-gray-600 hover:bg-gray-700 rounded-md shrink-0">음성 확인</button>
                         <button onClick={() => handleSave(['minimaxJwt', 'voiceModel'], `음성 API 설정 저장됨: 모델=${localSettings.voiceModel}`)} className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 rounded-md">음성 API 설정 저장</button>
                     </div>
                 </div>
@@ -226,17 +240,19 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
                 </div>
             </div>
             <div>
-                <label className="block text-sm font-medium mb-1">Shotstack URL</label>
+                <label className="block text-sm font-medium mb-1">IP 주소</label>
                  <div className="flex space-x-2">
                   <input 
                     type="text" 
                     value={localSettings.shotstackUrl}
                     onChange={(e) => handleLocalChange({ shotstackUrl: e.target.value })}
-                    className="flex-grow p-2 bg-[#1a1f2e] border border-gray-600 rounded-md" 
+                    className="flex-grow p-2 bg-[#1a1f2e] border border-gray-600 rounded-md"
+                    placeholder="https://your-public-domain.com"
                   />
+                   <button onClick={handleCheckIp} className="px-4 py-2 text-sm bg-gray-600 hover:bg-gray-700 rounded-md shrink-0">IP 확인</button>
                 </div>
             </div>
-            <button onClick={() => handleSave(['googleApiKey', 'shotstackApiKey', 'shotstackUrl'], 'Google/Shotstack/URL 설정이 저장되었습니다.')} className="w-full mt-4 py-3 font-bold bg-green-600 hover:bg-green-700 rounded-md">Google/Shotstack/IP 설정 저장</button>
+            <button onClick={() => handleSave(['googleApiKey', 'shotstackApiKey', 'shotstackUrl'], 'Google/Shotstack/IP 설정이 저장되었습니다.')} className="w-full mt-4 py-3 font-bold bg-green-600 hover:bg-green-700 rounded-md">Google/Shotstack/IP 설정 저장</button>
         </div>
       </Card>
 

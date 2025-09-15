@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { ScriptingTab } from './views/ScriptingTab';
 import { ChannelsTab } from './views/ChannelsTab';
@@ -147,7 +148,8 @@ const App: React.FC = () => {
       case '영상편집':
         return <EditingTab addLog={addLog} scripts={scripts} setScripts={setScripts} settings={settings} updateSettings={handleSettingsUpdate} />;
       case '유튜브 업로드':
-        return <UploadTab addLog={addLog} />;
+        // FIX: Pass settings and updateSettings props to UploadTab to fix missing properties error.
+        return <UploadTab addLog={addLog} settings={settings} updateSettings={handleSettingsUpdate} />;
       case '내정보':
         return <SettingsTab addLog={addLog} settings={settings} updateSettings={handleSettingsUpdate} />;
       default:
@@ -157,7 +159,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#1a1f2e] text-gray-300 font-sans">
-      <div className="container mx-auto p-4">
+      <div className={`container mx-auto p-4 transition-all duration-300 ${showLogs ? 'pb-[35vh]' : ''}`}>
         <Header 
           tabs={TABS} 
           activeTab={activeTab} 

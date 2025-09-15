@@ -1,4 +1,4 @@
-import React, { useState, useRef, ChangeEvent, useEffect } from 'react';
+import React, { useState, useRef, ChangeEvent } from 'react';
 import type { Scene, Settings } from '../../types';
 import { generateImageSuggestions, generateAudioForScene } from '../../services/api';
 import { Modal } from '../../components/Modal';
@@ -21,31 +21,12 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdat
   const [editedScript, setEditedScript] = useState(scene.script);
   const [editedPrompt, setEditedPrompt] = useState(scene.imagePrompt);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const audioPlayerRef = useRef<HTMLAudioElement>(null);
 
   // State for the image suggestion modal
   const [isImageSelectionModalOpen, setIsImageSelectionModalOpen] = useState(false);
   const [imageSuggestions, setImageSuggestions] = useState<string[]>([]);
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const audio = audioPlayerRef.current;
-    if (!audio) return;
-
-    if (playingSceneId === scene.id && scene.audioUrl) {
-      if(audio.src !== scene.audioUrl) {
-        audio.src = scene.audioUrl;
-      }
-      audio.play().catch(e => addLog(`[씬 ${scene.id}] 오디오 재생 실패: ${e}`, 'ERROR'));
-    } else {
-      audio.pause();
-      if (playingSceneId !== scene.id) {
-           audio.currentTime = 0;
-      }
-    }
-  }, [playingSceneId, scene.id, scene.audioUrl, addLog]);
-
 
   const handleSave = () => {
     onUpdate({ ...scene, script: editedScript, imagePrompt: editedPrompt });
@@ -115,9 +96,9 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdat
     addLog(`[씬 ${scene.id}] 음성 생성 시작 (MiniMax)...`);
     onUpdate({ ...scene, audioState: 'generating' });
     try {
-      const audioUrl = await generateAudioForScene(editedScript, settings.minimaxJwt, settings.voiceModel);
-      addLog(`[씬 ${scene.id}] 음성 생성 완료.`, 'SUCCESS');
-      onUpdate({ ...scene, script: editedScript, imagePrompt: editedPrompt, audioUrl, audioState: 'done' });
+      const { audioUrl, duration } = await generateAudioForScene(editedScript, settings.minimaxJwt, settings.voiceModel);
+      addLog(`[씬 ${scene.id}] 음성 생성 완료 (길이: ${duration.toFixed(2)}s).`, 'SUCCESS');
+      onUpdate({ ...scene, script: editedScript, imagePrompt: editedPrompt, audioUrl, duration, audioState: 'done' });
     } catch (error: any) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       addLog(`[씬 ${scene.id}] 음성 생성 실패: ${errorMessage}`, 'ERROR');
@@ -130,7 +111,6 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdat
       addLog(`[씬 ${scene.id}] 재생할 음원이 없습니다.`, 'ERROR');
       return;
     }
-    // Toggle play/pause
     if (playingSceneId === scene.id) {
       setPlayingSceneId(null);
     } else {
@@ -184,7 +164,6 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdat
                 <button onClick={handleListenAudio} disabled={!scene.audioUrl || isAudioLoading} className="flex-1 px-3 py-2 text-sm bg-gray-600 hover:bg-gray-700 rounded-md disabled:bg-gray-500">
                   {playingSceneId === scene.id ? '재생 중지' : '음원 듣기'}
                 </button>
-                <audio ref={audioPlayerRef} style={{ display: 'none' }} />
             </div>
           </div>
           <div className="space-y-2">

@@ -13,6 +13,7 @@ export interface Scene {
   imagePrompt: string;
   imageUrl?: string;
   audioUrl?: string;
+  duration?: number; // 음원 길이를 초 단위로 저장
   imageState: 'pending' | 'generating' | 'done' | 'error';
   audioState: 'pending' | 'generating' | 'done' | 'error';
 }
@@ -24,9 +25,11 @@ export interface Script {
   channel: string;
   title: string;
   shorts_title: string;
-  shorts_summary: string;
+  shorts_summary:string;
   scenes: Scene[];
   status: ScriptStatus;
+  renderId?: string; // Shotstack 렌더링 ID
+  videoUrl?: string; // 완성된 비디오 URL
 }
 
 export interface YouTubeChannel {
@@ -40,6 +43,17 @@ export interface YouTubeVideo {
   uploadDate: string;
   channelName: string;
   title: string;
+}
+
+export interface YouTubeChannelDetails {
+  name: string;
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  videoId: string; // Channel ID
+  uploadtype: 'private' | 'public' | 'unlisted';
+  email: string;
+  refreshToken?: string;
 }
 
 export interface Settings {
@@ -58,4 +72,5 @@ export interface Settings {
   subtitleFont?: string; // Data URL for the font
   subtitleFontName?: string; // Font family name
   imageGenerationMode: 'sequential' | 'parallel';
+  youtube_channels: YouTubeChannelDetails[];
 }
