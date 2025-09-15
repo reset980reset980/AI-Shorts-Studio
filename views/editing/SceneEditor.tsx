@@ -1,4 +1,4 @@
-import React, { useState, useRef, ChangeEvent } from 'react';
+import React, { useState, useRef, ChangeEvent, useEffect } from 'react';
 import type { Scene, Settings } from '../../types';
 import { generateImageSuggestions, generateAudioForScene } from '../../services/api';
 import { Modal } from '../../components/Modal';
@@ -9,13 +9,15 @@ interface SceneEditorProps {
   onUpdate: (scene: Scene) => void;
   settings: Settings | null;
   onImageClick?: () => void;
+  playingSceneId: number | null;
+  setPlayingSceneId: (id: number | null) => void;
 }
 
 const LoadingSpinner: React.FC = () => (
     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
 );
 
-export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdate, settings, onImageClick }) => {
+export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdate, settings, onImageClick, playingSceneId, setPlayingSceneId }) => {
   const [editedScript, setEditedScript] = useState(scene.script);
   const [editedPrompt, setEditedPrompt] = useState(scene.imagePrompt);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -26,6 +28,24 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdat
   const [imageSuggestions, setImageSuggestions] = useState<string[]>([]);
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const audio = audioPlayerRef.current;
+    if (!audio) return;
+
+    if (playingSceneId === scene.id && scene.audioUrl) {
+      if(audio.src !== scene.audioUrl) {
+        audio.src = scene.audioUrl;
+      }
+      audio.play().catch(e => addLog(`[씬 ${scene.id}] 오디오 재생 실패: ${e}`, 'ERROR'));
+    } else {
+      audio.pause();
+      if (playingSceneId !== scene.id) {
+           audio.currentTime = 0;
+      }
+    }
+  }, [playingSceneId, scene.id, scene.audioUrl, addLog]);
+
 
   const handleSave = () => {
     onUpdate({ ...scene, script: editedScript, imagePrompt: editedPrompt });
@@ -106,13 +126,16 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdat
   };
   
   const handleListenAudio = () => {
-      if (audioPlayerRef.current && scene.audioUrl) {
-          audioPlayerRef.current.src = scene.audioUrl;
-          audioPlayerRef.current.play();
-          addLog(`[씬 ${scene.id}] 음원 재생 중...`, 'INFO');
-      } else {
-          addLog(`[씬 ${scene.id}] 재생할 음원이 없습니다.`, 'ERROR');
-      }
+    if (!scene.audioUrl) {
+      addLog(`[씬 ${scene.id}] 재생할 음원이 없습니다.`, 'ERROR');
+      return;
+    }
+    // Toggle play/pause
+    if (playingSceneId === scene.id) {
+      setPlayingSceneId(null);
+    } else {
+      setPlayingSceneId(scene.id);
+    }
   };
 
   const isImageLoading = scene.imageState === 'generating';
@@ -158,7 +181,9 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdat
                 >
                   {isAudioLoading ? <LoadingSpinner /> : '음원 생성'}
                 </button>
-                <button onClick={handleListenAudio} disabled={!scene.audioUrl || isAudioLoading} className="flex-1 px-3 py-2 text-sm bg-gray-600 hover:bg-gray-700 rounded-md disabled:bg-gray-500">음원 듣기</button>
+                <button onClick={handleListenAudio} disabled={!scene.audioUrl || isAudioLoading} className="flex-1 px-3 py-2 text-sm bg-gray-600 hover:bg-gray-700 rounded-md disabled:bg-gray-500">
+                  {playingSceneId === scene.id ? '재생 중지' : '음원 듣기'}
+                </button>
                 <audio ref={audioPlayerRef} style={{ display: 'none' }} />
             </div>
           </div>

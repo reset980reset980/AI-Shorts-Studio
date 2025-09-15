@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Script, Scene, Settings } from '../types';
 import { Card } from '../components/Card';
 import { SceneEditor } from './editing/SceneEditor';
 import { generateImageForScene, generateAudioForScene, delay, renderVideo, regenerateImagePrompts } from '../services/api';
+
+const SCRIPTS_STORAGE_KEY = 'ai_shorts_studio_scripts';
 
 interface ImageLightboxProps {
   isOpen: boolean;
@@ -78,10 +80,48 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
   const [selectedScriptId, setSelectedScriptId] = useState<string | null>(null);
   const [isRecorrecting, setIsRecorrecting] = useState<boolean>(false);
   const [lightboxState, setLightboxState] = useState<{isOpen: boolean; currentIndex: number}>({ isOpen: false, currentIndex: 0 });
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const [playingSceneId, setPlayingSceneId] = useState<number | null>(null);
 
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        event.preventDefault();
+        event.returnValue = ''; // Required for browsers like Chrome
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
+  const selectedScript = scripts.find(s => s.id === selectedScriptId);
+  
+  useEffect(() => {
+    if (lightboxState.isOpen && selectedScript) {
+        const scene = selectedScript.scenes[lightboxState.currentIndex];
+        if (scene?.audioUrl) {
+            setPlayingSceneId(scene.id);
+        } else {
+            setPlayingSceneId(null); // Stop if no audio for the current scene
+        }
+    }
+  }, [lightboxState.isOpen, lightboxState.currentIndex, selectedScript]);
+
+  const handleSaveChanges = () => {
+    try {
+      localStorage.setItem(SCRIPTS_STORAGE_KEY, JSON.stringify(scripts));
+      setHasUnsavedChanges(false);
+      addLog('모든 변경사항이 성공적으로 저장되었습니다.', 'SUCCESS');
+    } catch (error) {
+      addLog('변경사항을 로컬 저장소에 저장하는 데 실패했습니다.', 'ERROR');
+    }
+  };
 
   const handleScriptUpdate = (updatedScript: Script) => {
     setScripts(prevScripts => prevScripts.map(s => s.id === updatedScript.id ? updatedScript : s));
+    setHasUnsavedChanges(true);
   };
 
   const handleSceneUpdate = (updatedScene: Scene) => {
@@ -99,6 +139,7 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
   const handleDeleteScript = (scriptId: string) => {
     setScripts(prevScripts => prevScripts.filter(s => s.id !== scriptId));
     addLog('스크립트가 삭제되었습니다.', 'SUCCESS');
+    setHasUnsavedChanges(true);
     if (selectedScriptId === scriptId) {
         setSelectedScriptId(null);
     }
@@ -156,7 +197,6 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
     
     const scriptWithGeneratingState = {
         ...script,
-        // FIX: Explicitly type the return value of the map callback to 'Scene' to prevent type widening issues.
         scenes: script.scenes.map((s): Scene => scenesToProcess.find(p => p.id === s.id) ? { ...s, imageState: 'generating' } : s)
     };
     handleScriptUpdate(scriptWithGeneratingState);
@@ -176,48 +216,44 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
     if (settings.imageGenerationMode === 'parallel') {
         const results = await Promise.all(scenesToProcess.map(processScene));
         
-        setScripts(prevScripts => {
-            const finalScript = prevScripts.find(s => s.id === selectedScriptId);
-            if (!finalScript) return prevScripts;
-            
-            const updatedFinalScript = {
-                ...finalScript,
-                scenes: finalScript.scenes.map((scene): Scene => {
-                    const result = results.find(r => r.sceneId === scene.id);
-                    if (result) {
-                        return {
-                            ...scene,
-                            imageUrl: result.success ? result.imageUrl : undefined,
-                            imageState: result.success ? 'done' : 'error',
-                        };
-                    }
-                    return scene;
-                })
-            };
-            return prevScripts.map(s => s.id === selectedScriptId ? updatedFinalScript : s);
-        });
+        const finalScript = scripts.find(s => s.id === selectedScriptId);
+        if (!finalScript) return;
+        
+        const updatedFinalScript = {
+            ...finalScript,
+            scenes: finalScript.scenes.map((scene): Scene => {
+                const result = results.find(r => r.sceneId === scene.id);
+                if (result) {
+                    return {
+                        ...scene,
+                        imageUrl: result.success ? result.imageUrl : undefined,
+                        imageState: result.success ? 'done' : 'error',
+                    };
+                }
+                return scene;
+            })
+        };
+        handleScriptUpdate(updatedFinalScript);
 
     } else { // sequential
         for (const scene of scenesToProcess) {
             const result = await processScene(scene);
-            setScripts(prevScripts => {
-                const currentScript = prevScripts.find(s => s.id === selectedScriptId);
-                if (!currentScript) return prevScripts;
-                const updatedScript = {
-                    ...currentScript,
-                    scenes: currentScript.scenes.map((s): Scene => {
-                        if (s.id === result.sceneId) {
-                            return {
-                                ...s,
-                                imageUrl: result.success ? result.imageUrl : undefined,
-                                imageState: result.success ? 'done' : 'error',
-                            };
-                        }
-                        return s;
-                    })
-                };
-                return prevScripts.map(s => s.id === selectedScriptId ? updatedScript : s);
-            });
+            const currentScript = scripts.find(s => s.id === selectedScriptId);
+            if (!currentScript) return;
+            const updatedScript = {
+                ...currentScript,
+                scenes: currentScript.scenes.map((s): Scene => {
+                    if (s.id === result.sceneId) {
+                        return {
+                            ...s,
+                            imageUrl: result.success ? result.imageUrl : undefined,
+                            imageState: result.success ? 'done' : 'error',
+                        };
+                    }
+                    return s;
+                })
+            };
+            handleScriptUpdate(updatedScript);
             
             if (scenesToProcess.indexOf(scene) < scenesToProcess.length - 1) {
               await delay(5000); // 5-second delay
@@ -245,7 +281,6 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
 
     const scriptWithGeneratingState = {
         ...script,
-        // FIX: Explicitly type the return value of the map callback to 'Scene' to prevent type widening issues.
         scenes: script.scenes.map((s): Scene => scenesToProcess.find(p => p.id === s.id) ? { ...s, audioState: 'generating' } : s)
     };
     handleScriptUpdate(scriptWithGeneratingState);
@@ -255,28 +290,24 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
             const audioUrl = await generateAudioForScene(scene.script, settings.minimaxJwt, settings.voiceModel);
             addLog(`[씬 ${scene.id}] 음원 생성 성공.`, 'SUCCESS');
             
-            setScripts(prevScripts => {
-                const currentScript = prevScripts.find(s => s.id === selectedScriptId);
-                if (!currentScript) return prevScripts;
-                 const updatedScript = {
-                    ...currentScript,
-                    scenes: currentScript.scenes.map((s): Scene => s.id === scene.id ? { ...s, audioUrl, audioState: 'done' } : s)
-                };
-                return prevScripts.map(s => s.id === selectedScriptId ? updatedScript : s);
-            });
+            const currentScript = scripts.find(s => s.id === selectedScriptId);
+            if (!currentScript) return;
+             const updatedScript = {
+                ...currentScript,
+                scenes: currentScript.scenes.map((s): Scene => s.id === scene.id ? { ...s, audioUrl, audioState: 'done' } : s)
+            };
+            handleScriptUpdate(updatedScript);
         } catch (error: any) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             addLog(`[씬 ${scene.id}] 음원 생성 실패: ${errorMessage}`, 'ERROR');
 
-            setScripts(prevScripts => {
-                const currentScript = prevScripts.find(s => s.id === selectedScriptId);
-                if (!currentScript) return prevScripts;
-                 const updatedScript = {
-                    ...currentScript,
-                    scenes: currentScript.scenes.map((s): Scene => s.id === scene.id ? { ...s, audioState: 'error' } : s)
-                };
-                return prevScripts.map(s => s.id === selectedScriptId ? updatedScript : s);
-            });
+            const currentScript = scripts.find(s => s.id === selectedScriptId);
+            if (!currentScript) return;
+             const updatedScript = {
+                ...currentScript,
+                scenes: currentScript.scenes.map((s): Scene => s.id === scene.id ? { ...s, audioState: 'error' } : s)
+            };
+            handleScriptUpdate(updatedScript);
         }
     }
     addLog(`[${script.shorts_title}] 일괄 음원 생성이 완료되었습니다.`, 'SUCCESS');
@@ -301,7 +332,6 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
 
         const updatedScript = {
             ...script,
-            // FIX: Explicitly type the return value of the map callback to 'Scene' to prevent type widening issues.
             scenes: script.scenes.map((scene, index): Scene => ({
                 ...scene,
                 imagePrompt: newPrompts[index],
@@ -333,6 +363,7 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
   };
   const closeLightbox = () => {
     setLightboxState({ isOpen: false, currentIndex: 0 });
+    setPlayingSceneId(null);
   };
   const goToNextImage = () => {
     setLightboxState(prev => ({ ...prev, currentIndex: Math.min(prev.currentIndex + 1, (selectedScript?.scenes.length ?? 0) - 1) }));
@@ -340,8 +371,6 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
   const goToPrevImage = () => {
     setLightboxState(prev => ({ ...prev, currentIndex: Math.max(prev.currentIndex - 1, 0) }));
   };
-
-  const selectedScript = scripts.find(s => s.id === selectedScriptId);
 
   if (!selectedScript) {
     return (
@@ -351,7 +380,7 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
         ) : (
           <div className="space-y-3">
             <div className="flex justify-end">
-                <button onClick={() => setScripts([])} className="px-4 py-2 text-sm font-semibold bg-red-600 hover:bg-red-700 rounded-md">전체 삭제</button>
+                <button onClick={() => { setScripts([]); setHasUnsavedChanges(true); }} className="px-4 py-2 text-sm font-semibold bg-red-600 hover:bg-red-700 rounded-md">전체 삭제</button>
             </div>
             {scripts.map(script => (
               <div key={script.id} className="bg-[#1a1f2e] p-4 rounded-lg border border-gray-700 flex justify-between items-center">
@@ -397,6 +426,13 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
                     {/* */}
                     {/* --- 요청 예시 --- */}
                     {/* "영상편집 탭에 있는 '이미지 생성 모드' 토글 스위치를 제거하고, imageGenerationMode 설정을 항상 'parallel'로 고정해주세요. 데스크톱 환경에서는 순차 모드가 더 이상 필요하지 않습니다." */}
+                     <button
+                        onClick={handleSaveChanges}
+                        disabled={!hasUnsavedChanges}
+                        className="px-4 py-2 font-semibold bg-green-600 hover:bg-green-700 rounded-md disabled:bg-gray-500 disabled:cursor-not-allowed"
+                     >
+                         {hasUnsavedChanges ? '모든 변경사항 저장' : '저장 완료'}
+                     </button>
                     <div className="flex items-center space-x-2">
                         <span className={`text-sm font-medium ${settings?.imageGenerationMode === 'sequential' ? 'text-blue-400' : 'text-gray-400'}`}>
                             테스트 (순차)
@@ -435,6 +471,8 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
                     onUpdate={handleSceneUpdate}
                     settings={settings}
                     onImageClick={() => openLightbox(index)}
+                    playingSceneId={playingSceneId}
+                    setPlayingSceneId={setPlayingSceneId}
                 />
             ))}
         </div>

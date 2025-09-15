@@ -113,20 +113,6 @@ const App: React.FC = () => {
 
   }, [addLog]);
 
-  useEffect(() => {
-    // scripts 상태가 변경될 때마다 localStorage에 자동 저장
-    try {
-        if (scripts.length > 0) {
-            localStorage.setItem(SCRIPTS_STORAGE_KEY, JSON.stringify(scripts));
-        } else {
-            // 스크립트가 모두 삭제되면 ("전체 삭제" 등) 저장소에서도 해당 항목 제거
-            localStorage.removeItem(SCRIPTS_STORAGE_KEY);
-        }
-    } catch (error) {
-        addLog('스크립트를 로컬 저장소에 저장하는 데 실패했습니다.', 'ERROR');
-    }
-  }, [scripts, addLog]);
-
 
   const handleSettingsUpdate = async (newSettings: Partial<Settings>) => {
       if (!settings) return;
