@@ -5,6 +5,62 @@ import { GEMINI_API_KEY, MINIMAX_JWT_TOKEN, SHOTSTACK_API_KEY } from '../env';
 // Helper to simulate network delay
 export const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
+// --- Retry Helper for API calls ---
+const withRetry = async <T>(apiCall: () => Promise<T>, maxRetries: number = 3): Promise<T> => {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+        try {
+            return await apiCall();
+        } catch (error: any) {
+            attempt++;
+            const errorMessage = error.message || String(error);
+
+            // Add '499' to the list of retryable status codes.
+            // 429: Too Many Requests (Rate Limiting)
+            // 499: Client Closed Request (Often a gateway timeout or transient issue)
+            const isRetryable = errorMessage.includes('429') ||
+                                errorMessage.includes('499') ||
+                                errorMessage.toUpperCase().includes('RESOURCE_EXHAUSTED');
+
+            if (isRetryable) {
+                if (attempt >= maxRetries) {
+                    console.error(`API call failed after ${maxRetries} attempts due to a retryable error.`, error);
+                    throw error; // Re-throw the original error after final attempt
+                }
+
+                // Try to parse retryDelay from the error message
+                let delayMs = 2000 * Math.pow(2, attempt); // Exponential backoff
+
+                try {
+                    // The error message often contains a stringified JSON with details
+                    const errorJsonString = errorMessage.substring(errorMessage.indexOf('{'), errorMessage.lastIndexOf('}') + 1);
+                    const errorDetails = JSON.parse(errorJsonString);
+                    const retryInfo = errorDetails?.error?.details?.find((d: any) => d['@type'] === 'type.googleapis.com/google.rpc.RetryInfo');
+                    
+                    if (retryInfo?.retryDelay) {
+                        const seconds = parseInt(retryInfo.retryDelay.replace('s', ''), 10);
+                        // Use suggested delay + random jitter to avoid thundering herd
+                        delayMs = seconds * 1000 + Math.floor(Math.random() * 1000);
+                        console.log(`Retryable error hit. Retrying after suggested delay: ${Math.round(delayMs / 1000)}s... (Attempt ${attempt}/${maxRetries})`);
+                    } else {
+                         console.log(`Retryable error hit. Retrying with exponential backoff in ${Math.round(delayMs / 1000)}s... (Attempt ${attempt}/${maxRetries})`);
+                    }
+                } catch(e) {
+                     console.log(`Retryable error hit (could not parse details). Retrying with exponential backoff in ${Math.round(delayMs / 1000)}s... (Attempt ${attempt}/${maxRetries})`);
+                }
+                
+                await delay(delayMs);
+            } else {
+                // Not a retryable error, throw immediately
+                throw error;
+            }
+        }
+    }
+    // This should not be reached due to the throw in the catch block, but it satisfies TypeScript's control flow analysis.
+    throw new Error('API call failed after max retries.');
+};
+
+
 // --- Settings Management ---
 let mockSettings: Settings = {
   scriptPrompt: `당신은 1인칭 사연 각색을 전문으로 하는 '유튜브 쇼츠 작가'입니다. 시청자가 완전히 몰입할 수 있도록, 사용자가 제공한 원문({{story_content}})을 정확히 근거로 하여 1~3분 길이의 한국어 쇼츠 대본을 작성하세요. 반드시 1인칭(주인공=나) 시점으로 쓰고, 원문 외의 새로운 사건/인물/설정을 추가하지 마세요. 원문에 없는 상상 요소 금지. 다만 원문의 디테일을 더 선명하게 만들기 위한 표현(묘사 보강)은 허용됩니다.
@@ -156,22 +212,21 @@ export const generateScriptFromText = async (rawText: string, shortsTitle: strin
         properties: {
             shorts_title: { type: Type.STRING, description: "A shorter, punchier title suitable for YouTube Shorts." },
             shorts_summary: { type: Type.STRING, description: "A brief, one or two sentence summary of the story." },
-            total_duration: { type: Type.STRING, description: "The total estimated duration of the video, e.g., '02:30'." },
+            total_duration: { type: Type.STRING, description: "Total estimated duration, e.g., '01:45'." },
             shorts_script: {
                 type: Type.ARRAY,
-                description: "An array of scenes for the script.",
                 items: {
                     type: Type.OBJECT,
                     properties: {
                         start_time: { type: Type.STRING },
                         end_time: { type: Type.STRING },
                         section_type: { type: Type.STRING },
-                        script: { type: Type.STRING, description: "The dialogue or narration for this scene." },
-                        imagePrompt: { type: Type.STRING, description: "A detailed prompt for an AI image generator to create a visual for this scene. It should start with the required style prefix followed by a description." },
+                        script: { type: Type.STRING },
+                        imagePrompt: { type: Type.STRING }
                     },
-                     required: ["start_time", "end_time", "section_type", "script", "imagePrompt"]
-                },
-            },
+                    required: ["start_time", "end_time", "script", "imagePrompt"]
+                }
+            }
         },
         required: ["shorts_title", "shorts_summary", "total_duration", "shorts_script"]
     };
@@ -181,65 +236,65 @@ export const generateScriptFromText = async (rawText: string, shortsTitle: strin
         contents: filledPrompt,
         config: {
             responseMimeType: "application/json",
-            // The schema definition is complex, so we will parse manually.
-            // responseSchema: schema,
+            responseSchema: schema,
         },
     });
-    
-    let jsonResponse;
-    try {
-        // Attempt to parse the JSON, cleaning up potential markdown fences
-        const cleanedText = response.text.replace(/^```json\s*|```\s*$/g, '').trim();
-        jsonResponse = JSON.parse(cleanedText);
-    } catch (e) {
-        console.error("Failed to parse AI response as JSON:", response.text);
-        throw new Error("AI 응답을 JSON 형식으로 파싱하는 데 실패했습니다. AI가 지정된 형식을 따르지 않았을 수 있습니다.");
-    }
-    
-    // Manual validation
-    if (!jsonResponse.shorts_script || !Array.isArray(jsonResponse.shorts_script)) {
-         throw new Error("AI 응답에 'shorts_script' 배열이 포함되어 있지 않습니다.");
-    }
 
-    const scriptWithState: Omit<Script, 'id' | 'status'> = {
-        channel: 'UNKNOWN',
-        title: shortsTitle, // Use the user-provided title for the main title
-        shorts_title: jsonResponse.shorts_title || shortsTitle, // Use generated shorts title, fallback to main
-        shorts_summary: jsonResponse.shorts_summary || 'No summary generated.',
-        scenes: jsonResponse.shorts_script.map((scene: any, index: number): Scene => ({
-            id: index + 1,
-            time: `${scene.start_time} - ${scene.end_time}`,
-            script: scene.script,
-            imagePrompt: scene.imagePrompt,
-            imageUrl: undefined,
-            audioUrl: undefined,
-            imageState: 'pending',
-            audioState: 'pending',
-        })),
+    const resultJson = JSON.parse(response.text);
+
+    const scenes: Scene[] = resultJson.shorts_script.map((item: any, index: number) => ({
+        id: index + 1,
+        time: `${item.start_time} - ${item.end_time}`,
+        script: item.script,
+        imagePrompt: item.imagePrompt,
+        imageState: 'pending',
+        audioState: 'pending',
+    }));
+
+    return {
+      channel: 'UNKNOWN', // Or derive from context if available
+      title: rawText.substring(0, 50),
+      shorts_title: resultJson.shorts_title,
+      shorts_summary: resultJson.shorts_summary,
+      scenes: scenes,
     };
+};
 
-    return scriptWithState;
+export const generateImageForScene = async (prompt: string, apiKey: string): Promise<string> => {
+  return withRetry(async () => {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateImages({
+        model: 'imagen-4.0-generate-001',
+        prompt: prompt,
+        config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio: '1:1' },
+      });
+      const base64ImageBytes = response.generatedImages[0].image.imageBytes;
+      return `data:image/jpeg;base64,${base64ImageBytes}`;
+  });
+};
+
+export const generateImageSuggestions = async (prompt: string, apiKey: string): Promise<string[]> => {
+    return withRetry(async () => {
+        const ai = new GoogleGenAI({ apiKey });
+        const response = await ai.models.generateImages({
+            model: 'imagen-4.0-generate-001',
+            prompt: prompt,
+            config: { numberOfImages: 4, outputMimeType: 'image/jpeg', aspectRatio: '1:1' },
+        });
+        return response.generatedImages.map(img => `data:image/jpeg;base64,${img.image.imageBytes}`);
+    });
 };
 
 export const regenerateImagePrompts = async (script: Script, settings: Settings): Promise<string[]> => {
-    if (!settings.googleApiKey) {
-        throw new Error("Google API Key가 설정되지 않았습니다.");
-    }
-    console.log('Regenerating image prompts with real AI call...');
     const ai = new GoogleGenAI({ apiKey: settings.googleApiKey });
-
-    const shortsScriptJson = JSON.stringify(
-        script.scenes.map(s => ({ scriptNumber: s.id, script: s.script }))
-    );
     
-    // Use summary and joined script text as a proxy for the original story content
-    const storyContent = `${script.shorts_summary}\n\n${script.scenes.map(s => s.script).join('\n')}`;
+    const scriptJson = JSON.stringify(script.scenes.map(s => ({ scriptNumber: s.id, script: s.script })), null, 2);
 
     const filledPrompt = settings.imagePrompt
-      .replace(/{{title}}/g, script.title)
-      .replace(/{{story_content}}/g, storyContent)
-      .replace(/{{shorts_script_json}}/g, shortsScriptJson)
-      .replace(/{{image_style}}/g, settings.imageStyle);
+        .replace(/{{title}}/g, script.title)
+        .replace(/{{story_content}}/g, script.scenes.map(s => s.script).join('\n'))
+        .replace(/{{shorts_script_json}}/g, scriptJson)
+        .replace(/{{image_style}}/g, settings.imageStyle);
 
     const schema = {
         type: Type.OBJECT,
@@ -252,13 +307,13 @@ export const regenerateImagePrompts = async (script: Script, settings: Settings)
                         scriptNumber: { type: Type.INTEGER },
                         image_prompt: { type: Type.STRING },
                     },
-                    required: ["scriptNumber", "image_prompt"],
-                }
-            }
+                    required: ["scriptNumber", "image_prompt"]
+                },
+            },
         },
         required: ["image_prompts"]
     };
-
+    
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: filledPrompt,
@@ -268,426 +323,178 @@ export const regenerateImagePrompts = async (script: Script, settings: Settings)
         },
     });
 
-    const jsonResponse = JSON.parse(response.text);
-    
-    if (!jsonResponse.image_prompts || !Array.isArray(jsonResponse.image_prompts)) {
-        throw new Error("AI did not return image prompts in the expected format.");
-    }
-    
-    // Sort by scriptNumber to ensure order is correct, then extract the prompt string.
-    const sortedPrompts = jsonResponse.image_prompts.sort((a: any, b: any) => a.scriptNumber - b.scriptNumber);
-    return sortedPrompts.map((p: any) => p.image_prompt);
+    const resultJson = JSON.parse(response.text);
+    return resultJson.image_prompts.map((p: { image_prompt: string }) => p.image_prompt);
 };
 
 
-export const generateImageForScene = async (prompt: string, apiKey: string): Promise<string> => {
-  if (!apiKey) {
-    throw new Error("Google API Key가 설정되지 않았습니다.");
-  }
-  console.log('Generating image with real AI call (imagen-4.0-generate-001)...');
-  const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateImages({
-      model: 'imagen-4.0-generate-001',
-      prompt: prompt,
-      config: {
-        numberOfImages: 1,
-        outputMimeType: 'image/jpeg',
-        aspectRatio: '9:16', // Changed to vertical for shorts
-      },
-  });
-
-  if (!response.generatedImages || response.generatedImages.length === 0) {
-      throw new Error("AI가 이미지를 생성하지 못했습니다.");
-  }
-
-  const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
-  return `data:image/jpeg;base64,${base64ImageBytes}`;
-};
-
-export const generateImageSuggestions = async (prompt: string, apiKey: string): Promise<string[]> => {
-  if (!apiKey) {
-    throw new Error("Google API Key가 설정되지 않았습니다.");
-  }
-  console.log('Generating 4 image suggestions with real AI call (imagen-4.0-generate-001)...');
-  const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateImages({
-      model: 'imagen-4.0-generate-001',
-      prompt: prompt,
-      config: {
-        numberOfImages: 4,
-        outputMimeType: 'image/jpeg',
-        aspectRatio: '9:16', // Changed to vertical for shorts
-      },
-  });
-
-  if (!response.generatedImages || response.generatedImages.length === 0) {
-      throw new Error("AI가 이미지를 생성하지 못했습니다.");
-  }
-  
-  return response.generatedImages.map(img => `data:image/jpeg;base64,${img.image.imageBytes}`);
-};
-
-
-/**
- * Converts a hex string to a Uint8Array.
- * @param hex The hex string to convert.
- * @returns A Uint8Array containing the binary data.
- */
-const hexToUint8Array = (hex: string): Uint8Array => {
-    const bytes = new Uint8Array(hex.length / 2);
-    for (let i = 0; i < hex.length; i += 2) {
-        bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-    }
-    return bytes;
-};
-
-const getAudioDuration = (audioUrl: string): Promise<number> => {
-    return new Promise((resolve, reject) => {
-        const audio = new Audio();
-        audio.onloadedmetadata = () => {
-            resolve(audio.duration);
-        };
-        audio.onerror = (e) => {
-            reject(`Error loading audio to get duration: ${e}`);
-        };
-        audio.preload = 'metadata';
-        audio.src = audioUrl;
-    });
-};
-
-
-export const generateAudioForScene = async (text: string, jwtToken: string, voiceModel: string): Promise<{ audioUrl: string; duration: number; }> => {
-    if (!jwtToken) {
-        throw new Error("MiniMax JWT Token이 설정되지 않았습니다. '내정보' 탭에서 설정해주세요.");
-    }
-    
-    console.log(`Generating audio with MiniMax T2A v2 API (Model: ${voiceModel})...`);
-
-    const getGroupIdFromJwt = (token: string): string | null => {
-        try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            return payload.GroupID || null;
-        } catch (e) {
-            console.error("Failed to decode JWT to find GroupID", e);
-            return null;
-        }
+export const generateAudioForScene = async (text: string, jwt: string, voiceModel: string): Promise<{ audioUrl: string; duration: number }> => {
+    const url = "https://api.minimax.chat/v1/text_to_speech?GroupId=1966460595511239408";
+    const headers = {
+        "Authorization": `Bearer ${jwt}`,
+        "Content-Type": "application/json",
     };
-
-    const groupId = getGroupIdFromJwt(jwtToken);
-    if (!groupId) {
-        throw new Error("JWT 토큰에서 GroupID를 추출할 수 없습니다. 유효한 토큰인지 확인해주세요.");
-    }
-
-    const url = `https://api.minimax.io/v1/t2a_v2?GroupId=${groupId}`;
-    
-    const requestBody = {
-        model: "speech-2.5-hd-preview",
-        text: text,
-        stream: false,
-        voice_setting: {
-            voice_id: voiceModel,
-            speed: 1.0,
-            vol: 1.0,
-            pitch: 0
-        },
-        audio_setting: {
-            sample_rate: 32000,
-            bitrate: 128000,
-            format: "mp3",
-            channel: 1
-        },
-        language_boost: "Korean",
-        output_format: "hex"
+    const payload = {
+        "voice_id": voiceModel,
+        "text": text,
+        "model": "speech-01",
+        "speed": 1.0,
+        "vol": 1.0,
+        "pitch": 0,
     };
 
     const response = await fetch(url, {
         method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${jwtToken}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
+        headers: headers,
+        body: JSON.stringify(payload)
     });
 
     if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`MiniMax API HTTP Error (${response.status}): ${errorBody}`);
+        const errorText = await response.text();
+        throw new Error(`MiniMax API error (${response.status}): ${errorText}`);
     }
 
-    const jsonResponse = await response.json();
-
-    if (jsonResponse.base_resp?.status_code !== 0) {
-        throw new Error(`MiniMax API Logic Error: ${jsonResponse.base_resp?.status_msg || 'Unknown error'}`);
-    }
-
-    if (!jsonResponse.data?.audio) {
-        throw new Error("MiniMax API did not return audio data in the expected format.");
-    }
-
-    const hexAudioData = jsonResponse.data.audio;
-    const audioBytes = hexToUint8Array(hexAudioData);
-    const audioBlob = new Blob([audioBytes], { type: 'audio/mpeg' });
+    const audioBlob = await response.blob();
     const audioUrl = URL.createObjectURL(audioBlob);
     
-    try {
-        const duration = await getAudioDuration(audioUrl);
-        return { audioUrl, duration };
-    } catch (error) {
-        console.error("Could not get audio duration", error);
-        URL.revokeObjectURL(audioUrl); // Clean up if duration measurement fails
-        throw new Error("음원 파일의 길이를 측정하는 데 실패했습니다.");
-    }
+    // Calculate duration
+    const audioContext = new AudioContext();
+    const arrayBuffer = await audioBlob.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    const duration = audioBuffer.duration;
+
+    return { audioUrl, duration };
 };
 
-// --- Shotstack Video Rendering ---
-
-interface ShotstackRenderResponse {
-    success: boolean;
-    message: string;
-    response: {
-        id: string;
-        message: string;
-    };
-}
-
-interface ShotstackStatusResponse {
-    success: boolean;
-    message: string;
-    response: {
-        id: string;
-        status: 'submitted' | 'queued' | 'rendering' | 'done' | 'failed';
-        url?: string;
-        error?: string;
-    };
-}
-
-// Helper to convert dataURL/blobURL to a File object for uploading
-const urlToBlob = (url: string) => fetch(url).then(res => res.blob());
-
-const uploadAsset = async (url: string, filename: string, settings: Settings): Promise<string> => {
-    const blob = await urlToBlob(url);
-    const formData = new FormData();
-    formData.append('data', blob, filename);
-    
-    const response = await fetch(`${settings.shotstackUrl}/assets`, {
-        method: 'POST',
-        headers: {
-            'x-api-key': settings.shotstackApiKey,
-        },
-        body: formData,
-    });
-    
-    if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`Shotstack 에셋 업로드 실패 (${response.status}): ${errorBody}`);
+export const startVideoRender = async (script: Script, settings: Settings): Promise<string> => {
+    if (!settings.shotstackApiKey) {
+        throw new Error("Shotstack API Key가 설정되지 않았습니다.");
     }
-    
-    const result = await response.json();
-    if (!result.success || !result.response.url) {
-        throw new Error(`Shotstack 에셋 업로드 응답 오류: ${result.message}`);
-    }
-    
-    return result.response.url;
-};
 
-// Helper to format time for SRT files
-const formatSrtTime = (totalSeconds: number): string => {
-    const hours = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
-    const minutes = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
-    const seconds = Math.floor(totalSeconds % 60).toString().padStart(2, '0');
-    const milliseconds = Math.round((totalSeconds - Math.floor(totalSeconds)) * 1000).toString().padStart(3, '0');
-    return `${hours}:${minutes}:${seconds},${milliseconds}`;
-};
-
-// Generates SRT content from scenes
-const generateSrtContent = (scenes: Scene[]): string => {
-    let srt = '';
+    const clips = [];
     let currentTime = 0;
     
-    scenes.forEach((scene, index) => {
-        if (!scene.duration) return;
+    for (const scene of script.scenes) {
+        if (!scene.imageUrl || !scene.audioUrl || !scene.duration) {
+            throw new Error(`[씬 ${scene.id}]에 이미지, 오디오, 또는 길이 정보가 없습니다.`);
+        }
 
-        const start = currentTime;
-        const end = currentTime + scene.duration;
-        
-        srt += `${index + 1}\n`;
-        srt += `${formatSrtTime(start)} --> ${formatSrtTime(end)}\n`;
-        srt += `${scene.script}\n\n`;
-        
-        currentTime = end;
-    });
-    
-    return srt;
-};
-
-
-/**
- * Creates the JSON body for the Shotstack API request.
- */
-const createShotstackEditJson = (
-    script: Script, 
-    settings: Settings, 
-    assetUrls: { imageUrls: string[], audioUrls: string[], srtUrl: string }
-) => {
-    const tracks: any[] = [];
-    let currentTime = 0;
-
-    const imageClips = script.scenes.map((scene, index) => {
-        if (!scene.duration) throw new Error(`Scene ${scene.id} is missing duration.`);
-        const clip = {
-            asset: { type: 'image', src: assetUrls.imageUrls[index] },
-            start: currentTime,
-            length: scene.duration,
-        };
-        currentTime += scene.duration;
-        return clip;
-    });
-    tracks.push({ clips: imageClips });
-
-    currentTime = 0; // Reset for audio track
-    const audioClips = script.scenes.map((scene, index) => {
-        if (!scene.duration) throw new Error(`Scene ${scene.id} is missing duration.`);
-        const clip = {
-            asset: { type: 'audio', src: assetUrls.audioUrls[index] },
-            start: currentTime,
-            length: scene.duration,
-        };
-        currentTime += scene.duration;
-        return clip;
-    });
-    tracks.push({ clips: audioClips });
-
-    // --- Subtitle Track ---
-    tracks.push({
-        clips: [{
-            asset: {
-                type: 'caption',
-                src: assetUrls.srtUrl,
-                style: {
-                    font: settings.subtitleFontName || 'Arial',
-                    size: 'xx-small',
-                    color: '#FFFF00', // Yellow
-                    background: '#000000',
-                    opacity: 0.6
-                },
-                position: 'bottom',
-                offset: { y: -0.15 }
+        // Image clip
+        clips.push({
+            "asset": {
+                "type": "image",
+                "src": scene.imageUrl
             },
-            start: 0,
-            length: currentTime
-        }]
-    });
+            "start": currentTime,
+            "length": scene.duration
+        });
 
-    // --- Background Music Track (optional) ---
+        // Audio clip
+        clips.push({
+            "asset": {
+                "type": "audio",
+                "src": scene.audioUrl,
+                "volume": 1
+            },
+            "start": currentTime,
+            "length": scene.duration
+        });
+        
+        // Subtitle clip
+        clips.push({
+            "asset": {
+                "type": "title",
+                "text": scene.script,
+                "style": "minimal",
+                "color": "#ffffff",
+                "background": "#00000033", // Black with 20% opacity
+                "position": "bottom",
+                "size": "small",
+                 ...(settings.subtitleFont && settings.subtitleFontName && { "font": { "src": settings.subtitleFont }})
+            },
+            "start": currentTime,
+            "length": scene.duration
+        });
+
+        currentTime += scene.duration;
+    }
+    
+    const tracks = [{"clips": clips}];
+
+    // Add background music if available
     if (settings.backgroundMusic) {
-        tracks.push({
-            clips: [{
-                asset: {
-                    type: 'audio',
-                    src: settings.backgroundMusic,
-                    volume: 0.2,
-                },
-                start: 0,
-                length: currentTime,
+        tracks.unshift({
+            "clips": [{
+                "asset": { "type": "audio", "src": settings.backgroundMusic, "volume": 0.2 },
+                "start": 0,
+                "length": currentTime
             }]
         });
     }
 
-    return {
-        timeline: { 
-            background: "#000000",
-            tracks 
+    // Add background image if available
+    if (settings.backgroundImage) {
+        tracks.unshift({
+            "clips": [{
+                "asset": { "type": "image", "src": settings.backgroundImage },
+                "start": 0,
+                "length": currentTime
+            }]
+        });
+    }
+
+
+    const payload = {
+        "timeline": {
+            "background": "#000000",
+            "tracks": tracks
         },
-        output: {
-            format: 'mp4',
-            resolution: 'hd',
-            aspectRatio: "9:16"
+        "output": {
+            "format": "mp4",
+            "resolution": "1080p",
+            "aspectRatio": "9:16"
         }
     };
-};
 
-/**
- * Initiates video rendering with Shotstack.
- * @returns The render ID from Shotstack.
- */
-export const startVideoRender = async (script: Script, settings: Settings): Promise<string> => {
-    if (!settings.shotstackApiKey || !settings.shotstackUrl) {
-        throw new Error("Shotstack API Key 또는 URL이 설정되지 않았습니다.");
-    }
-    
-    console.log(`[${script.title}] 1/3: 에셋 업로드를 시작합니다...`);
-
-    // 1. Upload all assets to Shotstack's hosting in parallel
-    const imageUploadPromises = script.scenes.map((s, i) => {
-        if (!s.imageUrl) throw new Error(`[씬 ${s.id}] 이미지가 없습니다.`);
-        return uploadAsset(s.imageUrl, `scene-${s.id}.jpg`, settings);
-    });
-    const audioUploadPromises = script.scenes.map((s, i) => {
-        if (!s.audioUrl) throw new Error(`[씬 ${s.id}] 음원이 없습니다.`);
-        return uploadAsset(s.audioUrl, `scene-${s.id}.mp3`, settings);
-    });
-    const [imageUrls, audioUrls] = await Promise.all([
-        Promise.all(imageUploadPromises),
-        Promise.all(audioUploadPromises)
-    ]);
-    console.log("모든 이미지와 음원 업로드 완료.");
-
-    // 2. Generate and upload SRT subtitles
-    const srtContent = generateSrtContent(script.scenes);
-    const srtBlob = new Blob([srtContent], { type: 'application/x-subrip' });
-    const srtFileUrl = URL.createObjectURL(srtBlob);
-    const srtUrl = await uploadAsset(srtFileUrl, 'subtitles.srt', settings);
-    URL.revokeObjectURL(srtFileUrl);
-    console.log("SRT 자막 파일 생성 및 업로드 완료.");
-
-    console.log(`[${script.title}] 2/3: 영상 합성을 요청합니다...`);
-    const editJson = createShotstackEditJson(script, settings, { imageUrls, audioUrls, srtUrl });
-    
     const response = await fetch(`${settings.shotstackUrl}/render`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'x-api-key': settings.shotstackApiKey,
+            'x-api-key': settings.shotstackApiKey
         },
-        body: JSON.stringify(editJson),
+        body: JSON.stringify(payload)
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`Shotstack API 오류 (${response.status}): ${errorBody}`);
+        throw new Error(`Shotstack API 에러 (${response.status}): ${JSON.stringify(data)}`);
     }
 
-    const result: ShotstackRenderResponse = await response.json();
-
-    if (!result.success) {
-        throw new Error(`Shotstack 전송 실패: ${result.message}`);
-    }
-
-    console.log(`[${script.title}] 3/3: 영상 합성 요청 성공. Render ID: ${result.response.id}`);
-    return result.response.id;
+    return data.response.id;
 };
 
-/**
- * Checks the status of a Shotstack render.
- * @returns The full status response from Shotstack.
- */
-export const getRenderStatus = async (renderId: string, settings: Settings): Promise<ShotstackStatusResponse['response']> => {
-     if (!settings.shotstackApiKey || !settings.shotstackUrl) {
-        throw new Error("Shotstack API Key 또는 URL이 설정되지 않았습니다.");
+
+export const getRenderStatus = async (renderId: string, settings: Settings): Promise<{ status: string, url?: string, error?: string }> => {
+    if (!settings.shotstackApiKey) {
+        throw new Error("Shotstack API Key가 설정되지 않았습니다.");
     }
-    
+
     const response = await fetch(`${settings.shotstackUrl}/render/${renderId}`, {
         method: 'GET',
         headers: {
-            'x-api-key': settings.shotstackApiKey,
-        },
+            'x-api-key': settings.shotstackApiKey
+        }
     });
 
+    const data = await response.json();
     if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`Shotstack 상태 확인 오류 (${response.status}): ${errorBody}`);
+        throw new Error(`Shotstack 상태 확인 API 에러 (${response.status}): ${JSON.stringify(data)}`);
     }
-    
-    const result: ShotstackStatusResponse = await response.json();
-    return result.response;
+
+    return {
+        status: data.response.status,
+        url: data.response.url,
+        error: data.response.error
+    };
 };

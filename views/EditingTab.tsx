@@ -281,36 +281,44 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
     };
     
     if (settings.imageGenerationMode === 'parallel') {
-        const results = await Promise.all(scenesToProcess.map(processScene));
-        
-        updateScriptState(selectedScriptId, s => ({
-            ...s,
-            scenes: s.scenes.map((scene): Scene => {
-                const result = results.find(r => r.sceneId === scene.id);
-                if (result) {
-                    return { ...scene, imageUrl: result.imageUrl, imageState: result.success ? 'done' : 'error' };
-                }
-                return scene;
-            })
-        }));
+        const batchSize = 3; // 한 번에 3개씩 처리
+        for (let i = 0; i < scenesToProcess.length; i += batchSize) {
+            const batch = scenesToProcess.slice(i, i + batchSize);
+            addLog(`[${script.shorts_title}] 이미지 생성 중... (그룹 ${Math.floor(i/batchSize) + 1}/${Math.ceil(scenesToProcess.length / batchSize)})`, 'INFO');
 
+            const results = await Promise.all(batch.map(processScene));
+
+            // 각 배치가 완료될 때마다 상태 업데이트
+            updateScriptState(selectedScriptId, s => ({
+                ...s,
+                scenes: s.scenes.map(scene => {
+                    const result = results.find(r => r.sceneId === scene.id);
+                    if (result) {
+                        return { ...scene, imageUrl: result.imageUrl, imageState: result.success ? 'done' : 'error' };
+                    }
+                    return scene;
+                })
+            }));
+            
+            // 마지막 배치가 아니면 API 속도 제한을 위해 대기
+            if (i + batchSize < scenesToProcess.length) {
+                addLog(`API 속도 제한 준수를 위해 20초 대기...`, 'INFO');
+                await delay(20000); 
+            }
+        }
     } else { // sequential
         for (const scene of scenesToProcess) {
             const result = await processScene(scene);
 
-            setScripts(prevScripts => prevScripts.map(s => {
-                if (s.id !== selectedScriptId) return s;
-                return {
-                    ...s,
-                    scenes: s.scenes.map(sc => {
-                        if (sc.id === result.sceneId) {
-                            return { ...sc, imageUrl: result.imageUrl, imageState: result.success ? 'done' : 'error' };
-                        }
-                        return sc;
-                    })
-                };
+            updateScriptState(selectedScriptId, s => ({
+                ...s,
+                scenes: s.scenes.map(sc => {
+                    if (sc.id === result.sceneId) {
+                        return { ...sc, imageUrl: result.imageUrl, imageState: result.success ? 'done' : 'error' };
+                    }
+                    return sc;
+                })
             }));
-            setHasUnsavedChanges(true);
 
             if (scenesToProcess.indexOf(scene) < scenesToProcess.length - 1) {
               await delay(5000);
