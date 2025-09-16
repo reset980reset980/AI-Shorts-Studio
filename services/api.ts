@@ -349,9 +349,20 @@ export const generateAudioForScene = async (text: string, jwt: string, voiceMode
         body: JSON.stringify(payload)
     });
 
-    if (!response.ok) {
+    // It's possible for the API to return an error payload with a 200 OK status.
+    // A successful response will have an 'audio/*' content type.
+    const contentType = response.headers.get('content-type');
+    if (!response.ok || !contentType || !contentType.startsWith('audio/')) {
         const errorText = await response.text();
-        throw new Error(`MiniMax API error (${response.status}): ${errorText}`);
+        try {
+            // Try to parse as JSON for a more structured error message.
+            const errorJson = JSON.parse(errorText);
+            const detailedMessage = errorJson?.base_resp?.status_msg || JSON.stringify(errorJson);
+            throw new Error(`MiniMax API error (${response.status}): ${detailedMessage}`);
+        } catch(e) {
+            // If it's not JSON, just show the raw text.
+            throw new Error(`MiniMax API error (${response.status}): ${errorText}`);
+        }
     }
 
     const audioBlob = await response.blob();
@@ -360,10 +371,17 @@ export const generateAudioForScene = async (text: string, jwt: string, voiceMode
     // Calculate duration
     const audioContext = new AudioContext();
     const arrayBuffer = await audioBlob.arrayBuffer();
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-    const duration = audioBuffer.duration;
 
-    return { audioUrl, duration };
+    try {
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        const duration = audioBuffer.duration;
+        return { audioUrl, duration };
+    } catch (error) {
+        // Clean up the object URL if decoding fails
+        URL.revokeObjectURL(audioUrl);
+        // Re-throw the original error, as it's descriptive enough
+        throw error;
+    }
 };
 
 export const startVideoRender = async (script: Script, settings: Settings): Promise<string> => {
