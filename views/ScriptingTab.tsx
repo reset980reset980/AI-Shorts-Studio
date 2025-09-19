@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Card } from '../components/Card';
 import { Modal } from '../components/Modal';
 import type { Script, Tab, Settings } from '../types';
+import { saveScript, saveProject } from '../services/fileStorage';
 
 interface ScriptingTabProps {
   addLog: (message: string, type?: 'INFO' | 'ERROR' | 'SUCCESS') => void;
@@ -83,8 +84,22 @@ export const ScriptingTab: React.FC<ScriptingTabProps> = ({ addLog, setScripts, 
       // Use the corrected text as the shorts title
       const generatedScript = await generateScriptFromText(inputText, outputText, settings);
       const newScript: Script = { ...generatedScript, id: Date.now().toString(), status: 'pending' };
+
+      // Save script to file system
+      const scriptId = saveScript(newScript);
+
+      // Create project metadata
+      const project = {
+        id: scriptId,
+        title: newScript.shorts_title || newScript.title,
+        scriptId: scriptId,
+        createdAt: new Date().toISOString(),
+        status: 'pending'
+      };
+      saveProject(project);
+
       setScripts(prevScripts => [...prevScripts, newScript]);
-      addLog('대본 생성 완료. 영상편집 탭으로 이동합니다.', 'SUCCESS');
+      addLog('대본 생성 및 저장 완료. 영상편집 탭으로 이동합니다.', 'SUCCESS');
       setActiveTab('영상편집');
     } catch (error: any) {
       const errorMessage = error instanceof Error ? error.message : String(error);

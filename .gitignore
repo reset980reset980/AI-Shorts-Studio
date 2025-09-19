@@ -22,3 +22,22 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Security - API Keys and Environment Variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+env.ts
+config/env.ts
+*.key
+*.pem
+secrets/
+
+# Reference folder - DO NOT COMMIT
+LSTUBE/
+LSTUBE/**/*
+
+# Package lock files (optional - 프로젝트 정책에 따라)
+package-lock.json

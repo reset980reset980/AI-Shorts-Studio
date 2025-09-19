@@ -3,6 +3,7 @@ import type { Script, Scene, Settings } from '../types';
 import { Card } from '../components/Card';
 import { SceneEditor } from './editing/SceneEditor';
 import { generateImageForScene, generateAudioForScene, delay, startVideoRender, getRenderStatus, regenerateImagePrompts } from '../services/api';
+import { saveScript, saveImage, saveAudio, saveVideo, saveProject } from '../services/fileStorage';
 
 const SCRIPTS_STORAGE_KEY = 'ai_shorts_studio_scripts';
 
@@ -108,10 +109,42 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
       const sceneToPlay = selectedScript?.scenes.find(s => s.id === playingSceneId);
 
       if (sceneToPlay?.audioUrl) {
-          if (audio.src !== sceneToPlay.audioUrl) {
+          // Base64 오디오 URL 검증 및 재생
+          if (sceneToPlay.audioUrl.startsWith('data:audio/')) {
+              console.log(`Playing audio for scene ${sceneToPlay.id}, URL length: ${sceneToPlay.audioUrl.length}`);
+
+              if (audio.src !== sceneToPlay.audioUrl) {
+                  audio.src = sceneToPlay.audioUrl;
+              }
+
+              // canplaythrough 이벤트를 기다린 후 재생
+              const playAudio = () => {
+                  audio.play()
+                      .then(() => {
+                          console.log(`[씬 ${sceneToPlay.id}] 오디오 재생 시작`);
+                          addLog(`[씬 ${sceneToPlay.id}] 오디오 재생 중...`, 'SUCCESS');
+                      })
+                      .catch(e => {
+                          console.error(`Audio playback error for scene ${sceneToPlay.id}:`, e);
+                          addLog(`[씬 ${sceneToPlay.id}] 오디오 재생 실패: ${e.message}`, 'ERROR');
+                      });
+              };
+
+              // 오디오가 이미 로드되었다면 바로 재생
+              if (audio.readyState >= 4) {
+                  playAudio();
+              } else {
+                  // 아니면 로드 완료를 기다림
+                  audio.addEventListener('canplaythrough', playAudio, { once: true });
+              }
+          } else if (sceneToPlay.audioUrl.startsWith('http')) {
+              // HTTP URL인 경우
               audio.src = sceneToPlay.audioUrl;
+              audio.play().catch(e => addLog(`[씬 ${sceneToPlay.id}] 오디오 재생 실패: ${e.message}`, 'ERROR'));
+          } else {
+              console.error('Invalid audio URL format:', sceneToPlay.audioUrl.substring(0, 100));
+              addLog(`[씬 ${sceneToPlay.id}] 잘못된 오디오 URL 형식`, 'ERROR');
           }
-          audio.play().catch(e => addLog(`[씬 ${sceneToPlay.id}] 오디오 재생 실패: ${e.message}`, 'ERROR'));
       } else {
           audio.pause();
       }
@@ -156,6 +189,25 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
 
                     if (statusResponse.status === 'done') {
                         addLog(`[${script.shorts_title}] 영상 합성이 완료되었습니다! URL: ${statusResponse.url}`, 'SUCCESS');
+
+                        // Save video reference to file system
+                        try {
+                            saveVideo(statusResponse.url, script.id);
+
+                            // Update project status
+                            const project = {
+                                id: script.id,
+                                title: script.shorts_title || script.title,
+                                scriptId: script.id,
+                                createdAt: new Date().toISOString(),
+                                status: 'completed'
+                            };
+                            saveProject(project);
+                            addLog(`[${script.shorts_title}] 영상이 파일 시스템에 저장되었습니다.`, 'SUCCESS');
+                        } catch (saveError) {
+                            addLog(`영상 저장 경고: ${saveError}`, 'INFO');
+                        }
+
                         updateAndPersistScriptState(script.id, s => ({ status: 'ready', videoUrl: statusResponse.url }));
                         clearInterval(pollingIntervals.current[script.id]);
                         delete pollingIntervals.current[script.id];
@@ -271,7 +323,15 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
     const processScene = async (scene: Scene) => {
         try {
             const imageUrl = await generateImageForScene(scene.imagePrompt, settings.googleApiKey);
-            addLog(`[씬 ${scene.id}] 이미지 생성 성공.`, 'SUCCESS');
+
+            // Save image to file system
+            try {
+                const savedPath = saveImage(imageUrl, selectedScriptId, scene.id);
+                addLog(`[씬 ${scene.id}] 이미지 생성 및 저장 성공.`, 'SUCCESS');
+            } catch (saveError) {
+                addLog(`[씬 ${scene.id}] 이미지 저장 경고: ${saveError}`, 'INFO');
+            }
+
             return { sceneId: scene.id, imageUrl, success: true, error: null };
         } catch (error: any) {
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -352,7 +412,14 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
     for (const scene of scenesToProcess) {
         try {
             const { audioUrl, duration } = await generateAudioForScene(scene.script, settings.minimaxJwt, settings.voiceModel);
-            addLog(`[씬 ${scene.id}] 음원 생성 성공 (길이: ${duration.toFixed(2)}s).`, 'SUCCESS');
+
+            // Save audio to file system
+            try {
+                const savedPath = await saveAudio(audioUrl, selectedScriptId, scene.id);
+                addLog(`[씬 ${scene.id}] 음원 생성 및 저장 성공 (길이: ${duration.toFixed(2)}s).`, 'SUCCESS');
+            } catch (saveError) {
+                addLog(`[씬 ${scene.id}] 음원 저장 경고: ${saveError}`, 'INFO');
+            }
             
             setScripts(prevScripts => prevScripts.map(s => {
                 if (s.id !== selectedScriptId) return s;

@@ -259,8 +259,7 @@ export const UploadTab: React.FC<UploadTabProps> = ({ addLog, settings, updateSe
   };
 
   return (
-    <>
-      <div className="space-y-6">
+    <div className="space-y-6">
         <Card title="채널 관리 및 인증">
           <div className="space-y-3">
               {settings?.youtube_channels.map(channel => (
@@ -328,4 +327,24 @@ export const UploadTab: React.FC<UploadTabProps> = ({ addLog, settings, updateSe
                                 {item.status === 'done' && <span className="text-green-400">완료</span>}
                                 {item.status === 'error' && <span className="text-red-400">실패</span>}
                                 {item.status === 'uploading' && (
-                                    <div className="
+                                    <div className="text-blue-400">업로드 중...</div>
+                                )}
+                            </td>
+                            <td className="p-2 text-center">
+                                <button
+                                    onClick={() => removeFromQueue(item.id)}
+                                    className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700"
+                                    disabled={item.status === 'uploading'}
+                                >
+                                    제거
+                                </button>
+                            </td>
+                        </tr>
+                        ))}
+                    </tbody>
+                </table>
+            )}
+        </Card>
+    </div>
+  );
+};

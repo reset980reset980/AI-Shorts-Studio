@@ -1,10 +1,22 @@
 // env.ts
-// This file centralizes API keys for easier management.
-// In a real-world application, these would be loaded from environment variables
-// and not hardcoded in the source code for security reasons.
+// This file loads API keys from environment variables for security.
+// Create a .env.local file with your actual API keys.
+// Never commit .env.local to version control!
 
-export const GEMINI_API_KEY = "AIzaSyBRR2wZCcru2cz-QlRQoBF942sh_kNr2z8";
+// Vite automatically loads VITE_ prefixed variables from .env files
+export const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+export const MINIMAX_JWT_TOKEN = import.meta.env.VITE_MINIMAX_JWT_TOKEN || '';
+export const SHOTSTACK_API_KEY = import.meta.env.VITE_SHOTSTACK_API_KEY || '';
 
-export const MINIMAX_JWT_TOKEN = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJHcm91cE5hbWUiOiLqvLzrg6XqvLzrg6UiLCJVc2VyTmFtZSI6Iuq8vOuDpeq8vOuDpSIsIkFjY291bnQiOiIiLCJTdWJqZWN0SUQiOiIxOTY2NDYwNTk1NTE1NDI5NjE2IiwiUGhvbmUiOiIiLCJHcm91cElEIjoiMTk2NjQ2MDU5NTUxMTIzOTQwOCIsIlBhZ2VOYW1lIjoiIiwiTWFpbCI6InJlc2V0OThAZ21haWwuY29tIiwiQ3JlYXRlVGltZSI6IjIwMjUtMDktMTMgMDE6MDE6NDgiLCJUb2tlblR5cGUiOjEsImlzcyI6Im1pbmltYXgifQ.vfPcV3bil3k6mr2U4O18Hcj5GzA7aPD2DsoUy76y8zc1iWgvw6eF1f_YzOMmWAGo_T2Y_3tK_iQ-74S_cM_aSajJwjgKTIYW7kpsMJ4F6v0WGa8dLLcYIpHSxQG7icIUSYdzkzCwsLyrj0UHX2efQoYRYprnQSDe4BHZQZ2meg6YXRXMRshsyxnNhJGHtGRdtm-uOrgWqyRJk_UxVWSEGsbd_CyxwNFbkuUY3bipz4QGjKOzX_EZtPTkPlGfy413O1mhhuFD8lw0eSmt5lkwMPvvpCO-KaV8K34B146_v91iGBWsHinsEaDO50s5BFgO6iObdMkshRavP558VZRsiw";
+// Validation to ensure API keys are loaded
+if (!GEMINI_API_KEY) {
+  console.warn('⚠️ GEMINI_API_KEY is not set. Please check your .env.local file.');
+}
 
-export const SHOTSTACK_API_KEY = "DwAg90Ct3Kij25bACtNYWZGPF2pD1FDdLhQcnWby";
+if (!MINIMAX_JWT_TOKEN) {
+  console.warn('⚠️ MINIMAX_JWT_TOKEN is not set. Please check your .env.local file.');
+}
+
+if (!SHOTSTACK_API_KEY) {
+  console.warn('⚠️ SHOTSTACK_API_KEY is not set. Please check your .env.local file.');
+}

@@ -3,6 +3,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { ScriptingTab } from './views/ScriptingTab';
 import { ChannelsTab } from './views/ChannelsTab';
 import { EditingTab } from './views/EditingTab';
+import { EditTab } from './views/EditTab';
 import { UploadTab } from './views/UploadTab';
 import { SettingsTab } from './views/SettingsTab';
 import { LogViewer } from './components/LogViewer';
@@ -147,6 +148,8 @@ const App: React.FC = () => {
         return <ChannelsTab addLog={addLog} settings={settings} updateSettings={handleSettingsUpdate} />;
       case '영상편집':
         return <EditingTab addLog={addLog} scripts={scripts} setScripts={setScripts} settings={settings} updateSettings={handleSettingsUpdate} />;
+      case '프로젝트관리':
+        return <EditTab addLog={addLog} settings={settings} updateSettings={handleSettingsUpdate} />;
       case '유튜브 업로드':
         // FIX: Pass settings and updateSettings props to UploadTab to fix missing properties error.
         return <UploadTab addLog={addLog} settings={settings} updateSettings={handleSettingsUpdate} />;

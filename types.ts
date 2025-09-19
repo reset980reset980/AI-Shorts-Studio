@@ -1,4 +1,4 @@
-export type Tab = '대본입력' | '유튜브채널' | '영상편집' | '유튜브 업로드' | '내정보';
+export type Tab = '대본입력' | '유튜브채널' | '영상편집' | '프로젝트관리' | '유튜브 업로드' | '내정보';
 
 export interface LogEntry {
   timestamp: string;
