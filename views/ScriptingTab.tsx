@@ -136,9 +136,9 @@ export const ScriptingTab: React.FC<ScriptingTabProps> = ({ addLog, setScripts, 
         </div>
         <div className="mt-6 flex justify-between items-center">
           <div className="flex space-x-2">
-              <button onClick={handleCorrection} className="px-4 py-2 text-sm font-semibold bg-[#374151] hover:bg-[#4B5563] text-white rounded-md" disabled={isLoading}>AI보정</button>
-              <button onClick={handleOpenPromptModal} className="px-4 py-2 text-sm font-semibold bg-white hover:bg-gray-100 text-gray-800 border border-gray-300 rounded-md" disabled={isLoading}>AI보정 프롬프트</button>
-              <button onClick={handleOpenApiModal} className="px-4 py-2 text-sm font-semibold bg-white hover:bg-gray-100 text-gray-800 border border-gray-300 rounded-md" disabled={isLoading}>API KEY</button>
+              <button onClick={handleCorrection} data-testid="ai-correction-button" className="px-4 py-2 text-sm font-semibold bg-[#374151] hover:bg-[#4B5563] text-white rounded-md" disabled={isLoading}>AI보정</button>
+              <button onClick={handleOpenPromptModal} data-testid="ai-prompt-button" className="px-4 py-2 text-sm font-semibold bg-white hover:bg-gray-100 text-gray-800 border border-gray-300 rounded-md" disabled={isLoading}>AI보정 프롬프트</button>
+              <button onClick={handleOpenApiModal} data-testid="api-key-button" className="px-4 py-2 text-sm font-semibold bg-white hover:bg-gray-100 text-gray-800 border border-gray-300 rounded-md" disabled={isLoading}>API KEY</button>
           </div>
           <button 
             onClick={handleSendScript}
