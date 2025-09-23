@@ -9,8 +9,13 @@ let Buffer: any = null;
 
 // Electron 환경 체크 및 모듈 로드
 if (typeof window !== 'undefined') {
-  // window.require 확인 (Electron nodeIntegration이 활성화된 경우)
   const electronWindow = window as any;
+
+  console.log('🔍 Checking Electron environment...', {
+    hasRequire: !!electronWindow.require,
+    hasElectron: !!electronWindow.electron,
+    userAgent: navigator.userAgent
+  });
 
   if (electronWindow.require) {
     try {
@@ -19,24 +24,35 @@ if (typeof window !== 'undefined') {
       Buffer = electronWindow.require('buffer').Buffer;
       const remote = electronWindow.require('@electron/remote');
       app = remote ? remote.app : null;
-      console.log('✓ Electron modules loaded successfully', {
+
+      // 실제 파일 시스템 테스트
+      if (fs && path && app) {
+        const testPath = path.join(app.getPath('userData'), 'test.txt');
+        try {
+          fs.writeFileSync(testPath, 'test');
+          fs.unlinkSync(testPath);
+          console.log('✅ File system write test successful!');
+        } catch (e) {
+          console.error('❌ File system write test failed:', e);
+        }
+      }
+
+      console.log('✓ Electron modules loaded:', {
         fs: !!fs,
         path: !!path,
         Buffer: !!Buffer,
-        app: !!app
+        app: !!app,
+        userData: app ? app.getPath('userData') : 'N/A'
       });
     } catch (error) {
       console.error('✗ Failed to load Electron modules:', error);
     }
-  } else if (electronWindow.electron) {
-    // preload script를 통한 접근 시도
-    console.log('Trying to access through electron global...');
-    fs = electronWindow.electron.fs;
-    path = electronWindow.electron.path;
-    Buffer = electronWindow.electron.Buffer;
-    app = electronWindow.electron.app;
   } else {
-    console.warn('⚠ Not running in Electron environment or nodeIntegration is disabled');
+    console.warn('⚠ window.require not available. Running in browser mode.');
+    console.log('💡 To enable file system access, ensure:');
+    console.log('   1. Running via "npm run electron" (not just "npm run dev")');
+    console.log('   2. nodeIntegration: true in electron.js');
+    console.log('   3. contextIsolation: false in electron.js');
   }
 }
 
