@@ -330,8 +330,15 @@ export const regenerateImagePrompts = async (script: Script, settings: Settings)
 
 export const generateAudioForScene = async (text: string, jwt: string, voiceModel: string): Promise<{ audioUrl: string; duration: number }> => {
     return withRetry(async () => {
-        // MiniMax API v2 엔드포인트 사용 (LSTUBE 참고)
-        const groupId = "1966460595511239408";
+        // JWT에서 GroupID 추출
+        let groupId = "1966460595511239408"; // fallback
+        try {
+            const tokenPayload = JSON.parse(atob(jwt.split('.')[1]));
+            groupId = tokenPayload.GroupID || groupId;
+        } catch (e) {
+            console.warn('JWT GroupID 추출 실패, 기본값 사용:', groupId);
+        }
+        
         const url = `https://api.minimax.io/v1/t2a_v2?GroupId=${groupId}`;
 
         const headers = {
@@ -356,10 +363,12 @@ export const generateAudioForScene = async (text: string, jwt: string, voiceMode
                 "format": "mp3",
                 "channel": 1
             }
+            // output_format 제거 - 기본값으로 hex 받기
         };
 
         console.log('MiniMax TTS Request:', {
             url,
+            groupId,
             voiceModel,
             textLength: text.length
         });
@@ -370,72 +379,74 @@ export const generateAudioForScene = async (text: string, jwt: string, voiceMode
             body: JSON.stringify(payload)
         });
 
-        // JSON 응답 처리 (MiniMax v2는 JSON 응답)
-        const responseData = await response.json();
-        console.log('MiniMax API Response:', responseData);
-
-        // 에러 체크
-        if (!responseData || !responseData.base_resp) {
-            throw new Error('MiniMax API 응답 형식이 올바르지 않습니다.');
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`MiniMax API HTTP 에러 ${response.status}: ${errorText}`);
         }
 
-        if (responseData.base_resp.status_code !== 0) {
-            const errorMsg = responseData.base_resp.status_msg || 'Unknown MiniMax error';
-            console.error('MiniMax API Error:', errorMsg);
+        // JSON 응답 처리
+        const responseData = await response.json();
+        console.log('MiniMax API Response:', {
+            status_code: responseData.base_resp?.status_code,
+            status_msg: responseData.base_resp?.status_msg,
+            has_data: !!responseData.data,
+            has_audio: !!responseData.data?.audio,
+            audio_length: responseData.data?.audio?.length?.toString()?.substring(0, 50) + '...'
+        });
 
-            // 토큰 관련 에러 처리
-            if (errorMsg.includes('token') || errorMsg.includes('unusable') || errorMsg.includes('expired')) {
-                throw new Error('MiniMax 토큰이 만료되었거나 유효하지 않습니다. 새로운 토큰을 발급받아주세요.');
-            }
-
+        // V2 응답 구조 처리
+        if (responseData.base_resp && responseData.base_resp.status_code !== 0) {
+            const errorMsg = responseData.base_resp.status_msg || 'Unknown error';
             throw new Error(`MiniMax API error: ${errorMsg}`);
         }
 
-        // 오디오 URL 추출
-        const data = responseData.data;
+        // 오디오 데이터 추출
+        const data = responseData.data || responseData;
         if (!data) {
-            throw new Error('MiniMax API에서 data가 비어있습니다.');
+            throw new Error('응답에서 오디오 데이터를 찾을 수 없습니다.');
         }
 
         let audioUrl: string;
+        let duration: number;
 
-        // output_format이 'url'인 경우 URL 직접 사용
+        // URL 응답
         if (data.audio_url || data.url) {
             audioUrl = data.audio_url || data.url;
-            console.log('Audio URL received:', audioUrl);
-
-            // MiniMax API는 duration을 별도로 제공하지 않으므로 예상 값 사용
-            // 한국어 기준 대략 글자당 0.15초 정도 (속도 1.15 적용)
-            const estimatedDuration = (text.length * 0.15) / 1.15;
-            console.log('Estimated duration:', estimatedDuration, 'seconds');
-            return { audioUrl, duration: estimatedDuration };
+            duration = data.duration || (text.length * 0.15); // 예상 시간
         }
-        // output_format이 'hex'인 경우 hex를 디코드하여 base64 data URL 생성
+        // HEX 응답을 Base64로 변환
         else if (data.audio) {
-            // Hex string을 바이트 배열로 변환
-            const hexString = data.audio;
-            const bytes = new Uint8Array(hexString.match(/.{1,2}/g)!.map((byte: string) => parseInt(byte, 16)));
+            try {
+                const hexString = data.audio;
+                console.log('Processing hex audio, length:', hexString.length);
 
-            // Base64로 인코딩 - 큰 배열에 대해 안전한 방법 사용
-            let binary = '';
-            const chunkSize = 0x8000; // 32KB 단위로 처리
-            for (let i = 0; i < bytes.length; i += chunkSize) {
-                const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-                binary += String.fromCharCode.apply(null, Array.from(chunk));
+                // Hex를 바이트 배열로 변환
+                const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map((byte: string) => parseInt(byte, 16)));
+
+                // 큰 배열에 대해 안전한 Base64 변환
+                let binary = '';
+                const chunkSize = 0x8000; // 32KB chunks
+                for (let i = 0; i < bytes.length; i += chunkSize) {
+                    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+                    binary += String.fromCharCode.apply(null, Array.from(chunk));
+                }
+
+                const base64Audio = btoa(binary);
+                audioUrl = `data:audio/mp3;base64,${base64Audio}`;
+                duration = text.length * 0.15;
+
+                console.log('Audio converted to base64, size:', base64Audio.length);
+            } catch (hexError) {
+                console.error('Failed to process hex audio:', hexError);
+                throw new Error('오디오 데이터 변환 실패');
             }
-            const base64Audio = btoa(binary);
-            audioUrl = `data:audio/mp3;base64,${base64Audio}`;
-
-            console.log('Audio hex converted to base64 data URL');
-
-            // 예상 duration 계산 (한국어 기준 글자당 0.15초)
-            const estimatedDuration = text.length * 0.15;
-            console.log('Estimated duration:', estimatedDuration, 'seconds');
-            return { audioUrl, duration: estimatedDuration };
         }
         else {
-            throw new Error('MiniMax API에서 오디오 데이터를 찾을 수 없습니다.');
+            throw new Error('오디오 데이터가 없습니다.');
         }
+
+        console.log(`Audio generated: ${audioUrl.substring(0, 50)}...`, duration + 's');
+        return { audioUrl, duration };
     }, 3); // 최대 3회 재시도
 };
 
@@ -444,13 +455,11 @@ export const startVideoRender = async (script: Script, settings: Settings): Prom
         throw new Error("Shotstack API Key가 설정되지 않았습니다.");
     }
 
-    // 캐시 버스팅 함수 (LSTUBE 참고)
+    // 캐시 버스팅 함수
     const cacheBust = () => `?v=${Date.now()}`;
 
-    // 트랙별로 클립 분리 (LSTUBE 구조 참고)
-    const imageClips = [];
-    const audioClips = [];
-    const titleClips = [];
+    // 단일 트랙에 모든 클립 배치 (간소화)
+    const clips = [];
     let currentTime = 0;
 
     for (const scene of script.scenes) {
@@ -458,11 +467,11 @@ export const startVideoRender = async (script: Script, settings: Settings): Prom
             throw new Error(`[씬 ${scene.id}]에 이미지, 오디오, 또는 길이 정보가 없습니다.`);
         }
 
-        // Image clip - 별도 트랙
-        imageClips.push({
+        // 각 씬마다 이미지와 오디오를 하나의 클립으로 결합
+        clips.push({
             "asset": {
                 "type": "image",
-                "src": scene.imageUrl + cacheBust()
+                "src": scene.imageUrl.startsWith('data:') ? scene.imageUrl : scene.imageUrl + cacheBust()
             },
             "start": currentTime,
             "length": scene.duration,
@@ -471,92 +480,53 @@ export const startVideoRender = async (script: Script, settings: Settings): Prom
             "scale": 1
         });
 
-        // Audio clip - 별도 트랙
-        audioClips.push({
+        // 오디오 클립
+        clips.push({
             "asset": {
                 "type": "audio",
-                "src": scene.audioUrl + cacheBust(),
+                "src": scene.audioUrl.startsWith('data:') ? scene.audioUrl : scene.audioUrl + cacheBust(),
                 "volume": 1
             },
             "start": currentTime,
             "length": scene.duration
         });
 
-        // Subtitle/Title clip - 별도 트랙 (LSTUBE 스타일)
-        titleClips.push({
+        // 자막 클립 (윈도우 호환성 개선)
+        clips.push({
             "asset": {
                 "type": "title",
                 "text": scene.script,
                 "style": "minimal",
                 "color": "#ffffff",
                 "size": "medium",
-                "background": "#000000aa", // 더 진한 배경
+                "background": "#000000cc",
                 "position": "bottom"
             },
             "start": currentTime,
             "length": scene.duration,
             "offset": {
                 "x": 0,
-                "y": 0.2  // 자막 위치 조정
+                "y": 0.15
             }
         });
 
         currentTime += scene.duration;
     }
 
-    // 트랙 구성 (LSTUBE 순서 참고: 배경 → 이미지 → 오디오 → 자막)
-    const tracks = [];
-
-    // 배경 트랙
-    if (settings.backgroundImage) {
-        tracks.push({
-            "clips": [{
-                "asset": {
-                    "type": "image",
-                    "src": settings.backgroundImage + cacheBust()
-                },
-                "start": 0,
-                "length": currentTime,
-                "position": "center",
-                "fit": "cover"
-            }]
-        });
-    }
-
-    // 이미지 트랙
-    tracks.push({ "clips": imageClips });
-
-    // 오디오 트랙
-    tracks.push({ "clips": audioClips });
-
-    // 자막 트랙
-    tracks.push({ "clips": titleClips });
-
-    // 배경음악 트랙
-    if (settings.backgroundMusic) {
-        tracks.push({
-            "clips": [{
-                "asset": {
-                    "type": "audio",
-                    "src": settings.backgroundMusic + cacheBust(),
-                    "volume": 0.3  // 배경음악 볼륨 조정
-                },
-                "start": 0,
-                "length": currentTime
-            }]
-        });
-    }
-
+    console.log('Shotstack payload:', JSON.stringify({ clipCount: clips.length, totalDuration: currentTime }));
+    
     const payload = {
         "timeline": {
             "background": "#000000",
-            "tracks": tracks
+            "tracks": [
+                { "clips": clips }
+            ]
         },
         "output": {
             "format": "mp4",
-            "resolution": "hd",  // 1080x1920 for shorts
+            "resolution": "hd",
             "aspectRatio": "9:16",
-            "fps": 25  // LSTUBE 설정
+            "fps": 25
         }
     };
 
