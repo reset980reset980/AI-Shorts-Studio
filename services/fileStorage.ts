@@ -5,17 +5,38 @@ import { Script } from '../types/Script';
 let fs: any = null;
 let path: any = null;
 let app: any = null;
+let Buffer: any = null;
 
 // Electron 환경 체크 및 모듈 로드
-if (typeof window !== 'undefined' && (window as any).require) {
-  try {
-    fs = (window as any).require('fs');
-    path = (window as any).require('path');
-    const remote = (window as any).require('@electron/remote');
-    app = remote ? remote.app : null;
-    console.log('Electron modules loaded successfully');
-  } catch (error) {
-    console.error('Failed to load Electron modules:', error);
+if (typeof window !== 'undefined') {
+  // window.require 확인 (Electron nodeIntegration이 활성화된 경우)
+  const electronWindow = window as any;
+
+  if (electronWindow.require) {
+    try {
+      fs = electronWindow.require('fs');
+      path = electronWindow.require('path');
+      Buffer = electronWindow.require('buffer').Buffer;
+      const remote = electronWindow.require('@electron/remote');
+      app = remote ? remote.app : null;
+      console.log('✓ Electron modules loaded successfully', {
+        fs: !!fs,
+        path: !!path,
+        Buffer: !!Buffer,
+        app: !!app
+      });
+    } catch (error) {
+      console.error('✗ Failed to load Electron modules:', error);
+    }
+  } else if (electronWindow.electron) {
+    // preload script를 통한 접근 시도
+    console.log('Trying to access through electron global...');
+    fs = electronWindow.electron.fs;
+    path = electronWindow.electron.path;
+    Buffer = electronWindow.electron.Buffer;
+    app = electronWindow.electron.app;
+  } else {
+    console.warn('⚠ Not running in Electron environment or nodeIntegration is disabled');
   }
 }
 
@@ -146,10 +167,10 @@ export const loadScript = (scriptId: string): Script | null => {
 // Save image from base64
 export const saveImage = (base64Data: string, scriptId: string, sceneId: number): string => {
   if (!fs || !path) {
-    console.warn('File system not available, using localStorage');
-    const imageKey = `image_${scriptId}_${sceneId}`;
-    localStorage.setItem(imageKey, base64Data);
-    return imageKey;
+    // localStorage는 이미지 파일에 적합하지 않음 (용량 제한)
+    console.error('File system not available for image storage');
+    console.warn('Image will remain in memory only (not persisted)');
+    return base64Data; // 원본 데이터 반환
   }
 
   const dataPath = getDataPath();
@@ -162,6 +183,10 @@ export const saveImage = (base64Data: string, scriptId: string, sceneId: number)
   const filePath = path.join(imagePath, fileName);
 
   // Convert base64 to buffer and save
+  if (!Buffer) {
+    console.error('Buffer not available, cannot save image');
+    return base64Data;
+  }
   const buffer = Buffer.from(base64, 'base64');
   fs.writeFileSync(filePath, buffer);
   console.log('Image saved to:', filePath);
@@ -172,10 +197,10 @@ export const saveImage = (base64Data: string, scriptId: string, sceneId: number)
 // Save audio from URL or base64
 export const saveAudio = async (audioUrl: string, scriptId: string, sceneId: number): Promise<string> => {
   if (!fs || !path) {
-    console.warn('File system not available, using localStorage');
-    const audioKey = `audio_${scriptId}_${sceneId}`;
-    localStorage.setItem(audioKey, audioUrl);
-    return audioKey;
+    // localStorage는 오디오 파일에 적합하지 않음 (용량 제한)
+    console.error('File system not available for audio storage');
+    console.warn('Audio will remain in memory only (not persisted)');
+    return audioUrl; // 원본 URL 반환
   }
 
   const dataPath = getDataPath();
@@ -187,6 +212,10 @@ export const saveAudio = async (audioUrl: string, scriptId: string, sceneId: num
 
   if (audioUrl.startsWith('data:')) {
     // Base64 data URL
+    if (!Buffer) {
+      console.error('Buffer not available, cannot save audio');
+      return audioUrl;
+    }
     const base64 = audioUrl.replace(/^data:audio\/\w+;base64,/, '');
     const buffer = Buffer.from(base64, 'base64');
     fs.writeFileSync(filePath, buffer);
