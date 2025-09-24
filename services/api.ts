@@ -455,6 +455,37 @@ export const startVideoRender = async (script: Script, settings: Settings): Prom
         throw new Error("Shotstack API Key가 설정되지 않았습니다.");
     }
 
+    if (!settings.shotstackUrl) {
+        throw new Error("파일 서버 URL이 설정되지 않았습니다. 설정에서 파일 서버 URL을 입력해주세요.");
+    }
+
+    // 파일 경로를 HTTP URL로 변환하는 헬퍼 함수
+    const toHttpUrl = (filePath: string): string => {
+        // base64 데이터는 처리하지 않음 (더 이상 사용하지 않음)
+        if (filePath.startsWith('data:')) {
+            throw new Error("Base64 데이터는 지원하지 않습니다. 파일을 먼저 로컬에 저장하세요.");
+        }
+
+        // 이미 HTTP URL인 경우 그대로 반환
+        if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+            return filePath;
+        }
+
+        // 로컬 경로를 HTTP URL로 변환
+        // D:\ai-shorts-studio\AI-Shorts-Studio\data\images\scriptId\scene_1.jpg
+        // -> http://IP:5900/data/images/scriptId/scene_1.jpg
+        const dataIndex = filePath.indexOf('data');
+        if (dataIndex === -1) {
+            throw new Error(`유효하지 않은 파일 경로: ${filePath}`);
+        }
+
+        const relativePath = filePath.substring(dataIndex).replace(/\\/g, '/');
+        const baseUrl = settings.shotstackUrl.endsWith('/')
+            ? settings.shotstackUrl.slice(0, -1)
+            : settings.shotstackUrl;
+        return `${baseUrl}/${relativePath}`;
+    };
+
     // 캐시 버스팅 함수
     const cacheBust = () => `?v=${Date.now()}`;
 
@@ -467,11 +498,18 @@ export const startVideoRender = async (script: Script, settings: Settings): Prom
             throw new Error(`[씬 ${scene.id}]에 이미지, 오디오, 또는 길이 정보가 없습니다.`);
         }
 
+        // 파일 경로를 HTTP URL로 변환
+        const imageHttpUrl = toHttpUrl(scene.imageUrl);
+        const audioHttpUrl = toHttpUrl(scene.audioUrl);
+
+        console.log(`[씬 ${scene.id}] 이미지 URL: ${imageHttpUrl}`);
+        console.log(`[씬 ${scene.id}] 오디오 URL: ${audioHttpUrl}`);
+
         // 각 씬마다 이미지와 오디오를 하나의 클립으로 결합
         clips.push({
             "asset": {
                 "type": "image",
-                "src": scene.imageUrl.startsWith('data:') ? scene.imageUrl : scene.imageUrl + cacheBust()
+                "src": imageHttpUrl + cacheBust()
             },
             "start": currentTime,
             "length": scene.duration,
@@ -484,7 +522,7 @@ export const startVideoRender = async (script: Script, settings: Settings): Prom
         clips.push({
             "asset": {
                 "type": "audio",
-                "src": scene.audioUrl.startsWith('data:') ? scene.audioUrl : scene.audioUrl + cacheBust(),
+                "src": audioHttpUrl + cacheBust(),
                 "volume": 1
             },
             "start": currentTime,

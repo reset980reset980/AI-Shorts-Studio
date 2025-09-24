@@ -240,17 +240,18 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
                 </div>
             </div>
             <div>
-                <label className="block text-sm font-medium mb-1">IP 주소</label>
+                <label className="block text-sm font-medium mb-1">파일 서버 URL (Shotstack용)</label>
                  <div className="flex space-x-2">
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={localSettings.shotstackUrl}
                     onChange={(e) => handleLocalChange({ shotstackUrl: e.target.value })}
                     className="flex-grow p-2 bg-[#1a1f2e] border border-gray-600 rounded-md"
-                    placeholder="https://your-public-domain.com"
+                    placeholder="예: http://192.168.1.100:5900 또는 ngrok URL"
                   />
                    <button onClick={handleCheckIp} className="px-4 py-2 text-sm bg-gray-600 hover:bg-gray-700 rounded-md shrink-0">IP 확인</button>
                 </div>
+                <p className="text-xs text-gray-400 mt-1">파일 서버 실행: node file-server.js / ngrok: ngrok http 5900</p>
             </div>
             <button onClick={() => handleSave(['googleApiKey', 'shotstackApiKey', 'shotstackUrl'], 'Google/Shotstack/IP 설정이 저장되었습니다.')} className="w-full mt-4 py-3 font-bold bg-green-600 hover:bg-green-700 rounded-md">Google/Shotstack/IP 설정 저장</button>
         </div>

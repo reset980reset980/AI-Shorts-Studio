@@ -68,6 +68,7 @@ export interface Settings {
   googleApiKey: string;
   shotstackApiKey: string;
   shotstackUrl: string;
+  fileServerUrl?: string; // HTTP URL for file server (e.g., http://IP:5900 or ngrok URL)
   backgroundImage?: string; // Data URL for the image
   backgroundMusic?: string; // Data URL for the audio
   subtitleFont?: string; // Data URL for the font
