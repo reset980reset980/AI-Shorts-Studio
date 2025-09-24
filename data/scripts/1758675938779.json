@@ -1,0 +1,106 @@
+{
+  "channel": "UNKNOWN",
+  "title": "짬뽕 끓이기",
+  "shorts_title": "내 인생 최고의 짬뽕, 그 숨겨진 비밀",
+  "shorts_summary": "짬뽕을 만들던 중 예상치 못한 난관에 부딪혔지만, 놀라운 반전과 함께 인생 최고의 맛을 찾아낸 나의 좌충우돌 요리 여정.",
+  "scenes": [
+    {
+      "id": 1,
+      "time": "00:00 - 00:15",
+      "script": "오늘따라 짬뽕이 너무 당겼어. 직접 만들어보기로 했지.",
+      "imagePrompt": "anime style digital painting, soft realistic illustration, 텍스트는 제외해. | 그림설명 : 밝은 주방에서 행복한 표정으로 짬뽕을 상상하며 활짝 웃는 젊은이의 모습. 머리 위로는 김이 나는 짬뽕 한 그릇이 떠오른다.",
+      "imageState": "pending",
+      "audioState": "pending"
+    },
+    {
+      "id": 2,
+      "time": "00:15 - 00:30",
+      "script": "하지만 집에서 짬뽕 끓이는 건 정말 만만치 않은 일이야.",
+      "imagePrompt": "anime style digital painting, soft realistic illustration, 텍스트는 제외해. | 그림설명 : 요리 도구와 식재료로 약간 어수선한 주방에서 결연하지만 살짝 압도된 표정으로 서 있는 주인공. 주변에는 짬뽕 재료들이 펼쳐져 있다.",
+      "imageState": "pending",
+      "audioState": "pending"
+    },
+    {
+      "id": 3,
+      "time": "00:30 - 00:45",
+      "script": "신선한 해산물부터 채소, 육수 재료까지 꼼꼼히 준비했지.",
+      "imagePrompt": "anime style digital painting, soft realistic illustration, 텍스트는 제외해. | 그림설명 : 수도꼭지 아래에서 신선한 해산물과 다채로운 채소들을 꼼꼼하게 씻고 있는 손의 클로즈업. 주방 조리대가 보인다.",
+      "imageState": "pending",
+      "audioState": "pending"
+    },
+    {
+      "id": 4,
+      "time": "00:45 - 01:00",
+      "script": "그런데 갑자기 깨달았어. 가장 중요한 재료 하나가 없는 거야!",
+      "imagePrompt": "anime style digital painting, soft realistic illustration, 텍스트는 제외해. | 그림설명 : 주인공의 얼굴에 갑작스러운 당황함이 가득하다. 눈이 커지고 한 손은 가슴을 움켜쥐고 있으며, 조리대 한 부분이 텅 비어있다.",
+      "imageState": "pending",
+      "audioState": "pending"
+    },
+    {
+      "id": 5,
+      "time": "01:00 - 01:15",
+      "script": "냉장고를 뒤지고, 찬장을 열어봐도 어디에도 보이지 않았어.",
+      "imagePrompt": "anime style digital painting, soft realistic illustration, 텍스트는 제외해. | 그림설명 : 주인공이 열린 냉장고와 찬장 선반을 frantic하게 뒤지고 있다. 식재료들이 쏟아져 나오고, 절박한 표정이 역력하다.",
+      "imageState": "pending",
+      "audioState": "pending"
+    },
+    {
+      "id": 6,
+      "time": "01:15 - 01:30",
+      "script": "포기하려던 찰나, 구석에서 빛나는 작은 봉투를 발견했지!",
+      "imagePrompt": "anime style digital painting, soft realistic illustration, 텍스트는 제외해. | 그림설명 : 어두운 구석을 향해 뻗은 손의 클로즈업. 희미한 빛이 작은 건어물 봉투나 고추장 봉투를 비추고 있으며, 주인공의 얼굴에 희망의 빛이 스친다.",
+      "imageState": "pending",
+      "audioState": "pending"
+    },
+    {
+      "id": 7,
+      "time": "01:30 - 01:45",
+      "script": "다시 마음을 다잡고, 재료들을 능숙하게 썰고 볶기 시작했어.",
+      "imagePrompt": "anime style digital painting, soft realistic illustration, 텍스트는 제외해. | 그림설명 : 주인공이 뜨거운 불 위 웍에서 다진 채소와 해산물을 능숙하게 볶고 있는 역동적인 모습. 김이 피어오르고, 주인공의 표정은 집중되어 있다.",
+      "imageState": "pending",
+      "audioState": "pending"
+    },
+    {
+      "id": 8,
+      "time": "01:45 - 02:00",
+      "script": "얼큰한 육수에 면을 넣고, 맛의 조화를 신경 써서 끓여냈어.",
+      "imagePrompt": "anime style digital painting, soft realistic illustration, 텍스트는 제외해. | 그림설명 : 붉고 진한 짬뽕 육수가 담긴 냄비가 보글거리고, 면발이 냄비 속으로 추가되고 있다. 김이 위로 피어오르는 냄비의 클로즈업.",
+      "imageState": "pending",
+      "audioState": "pending"
+    },
+    {
+      "id": 9,
+      "time": "02:00 - 02:15",
+      "script": "드디어 모든 과정이 끝났고, 그릇에 예쁘게 담아냈어.",
+      "imagePrompt": "anime style digital painting, soft realistic illustration, 텍스트는 제외해. | 그림설명 : 손이 김이 모락모락 나는 생생한 짬뽕 한 그릇을 조심스럽게 국자로 떠 담고, 그 위에 신선한 쪽파로 고명을 얹는 모습. 기대감이 감돈다.",
+      "imageState": "pending",
+      "audioState": "pending"
+    },
+    {
+      "id": 10,
+      "time": "02:15 - 02:30",
+      "script": "심장이 두근거리는 순간, 뜨거운 국물 한 숟가락을 맛봤지.",
+      "imagePrompt": "anime style digital painting, soft realistic illustration, 텍스트는 제외해. | 그림설명 : 숟가락이 면발과 함께 진한 붉은 짬뽕 국물을 뜨는 클로즈업. 주인공의 눈은 기대감에 살짝 감겨 있고, 입은 약간 벌어져 있다.",
+      "imageState": "pending",
+      "audioState": "pending"
+    },
+    {
+      "id": 11,
+      "time": "02:30 - 02:45",
+      "script": "완벽한 불맛과 깊은 해산물 향! 내가 만들었다는 게 믿기지 않았어!",
+      "imagePrompt": "anime style digital painting, soft realistic illustration, 텍스트는 제외해. | 그림설명 : 주인공의 얼굴에 순수한 기쁨과 만족감이 넘쳐흐른다. 눈은 놀라움으로 커져 있고, 앞의 짬뽕 그릇에서 김이 피어오른다.",
+      "imageState": "pending",
+      "audioState": "pending"
+    },
+    {
+      "id": 12,
+      "time": "02:45 - 03:00",
+      "script": "오늘 나의 짬뽕은 단순한 음식이 아닌, 작은 승리였어.",
+      "imagePrompt": "anime style digital painting, soft realistic illustration, 텍스트는 제외해. | 그림설명 : 주인공이 짬뽕을 행복하게 즐기고 있다. 평화로운 미소가 얼굴에 번져 있고, 주방은 따뜻한 빛으로 가득하며, 성취감이 느껴진다.",
+      "imageState": "pending",
+      "audioState": "pending"
+    }
+  ],
+  "id": "1758675938779",
+  "status": "pending"
+}

@@ -325,14 +325,16 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
             const imageUrl = await generateImageForScene(scene.imagePrompt, settings.googleApiKey);
 
             // Save image to file system
+            let finalImageUrl = imageUrl;
             try {
                 const savedPath = saveImage(imageUrl, selectedScriptId, scene.id);
-                addLog(`[씬 ${scene.id}] 이미지 생성 및 저장 성공.`, 'SUCCESS');
+                finalImageUrl = savedPath; // Use the saved file path instead of base64
+                addLog(`[씬 ${scene.id}] 이미지 생성 및 저장 성공: ${savedPath}`, 'SUCCESS');
             } catch (saveError) {
                 addLog(`[씬 ${scene.id}] 이미지 저장 경고: ${saveError}`, 'INFO');
             }
 
-            return { sceneId: scene.id, imageUrl, success: true, error: null };
+            return { sceneId: scene.id, imageUrl: finalImageUrl, success: true, error: null };
         } catch (error: any) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             addLog(`[씬 ${scene.id}] 이미지 생성 실패: ${errorMessage}`, 'ERROR');
@@ -414,18 +416,20 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
             const { audioUrl, duration } = await generateAudioForScene(scene.script, settings.minimaxJwt, settings.voiceModel);
 
             // Save audio to file system
+            let finalAudioUrl = audioUrl;
             try {
                 const savedPath = await saveAudio(audioUrl, selectedScriptId, scene.id);
-                addLog(`[씬 ${scene.id}] 음원 생성 및 저장 성공 (길이: ${duration.toFixed(2)}s).`, 'SUCCESS');
+                finalAudioUrl = savedPath; // Use the saved file path instead of base64
+                addLog(`[씬 ${scene.id}] 음원 생성 및 저장 성공: ${savedPath} (길이: ${duration.toFixed(2)}s).`, 'SUCCESS');
             } catch (saveError) {
                 addLog(`[씬 ${scene.id}] 음원 저장 경고: ${saveError}`, 'INFO');
             }
-            
+
             setScripts(prevScripts => prevScripts.map(s => {
                 if (s.id !== selectedScriptId) return s;
                 return {
                     ...s,
-                    scenes: s.scenes.map(sc => sc.id === scene.id ? { ...sc, audioUrl, duration, audioState: 'done' } : sc)
+                    scenes: s.scenes.map(sc => sc.id === scene.id ? { ...sc, audioUrl: finalAudioUrl, duration, audioState: 'done' } : sc)
                 };
             }));
             setHasUnsavedChanges(true);
