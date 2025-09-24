@@ -11,6 +11,7 @@ import type { Tab, LogEntry, Script, Settings } from './types';
 import { TABS } from './constants';
 import { Header } from './components/Header';
 import { getSettings, saveSettings } from './services/api';
+import { loadScripts } from './services/fileStorage';
 
 const SCRIPTS_STORAGE_KEY = 'ai_shorts_studio_scripts';
 
@@ -98,19 +99,27 @@ const App: React.FC = () => {
     };
     loadInitialSettings();
 
-    // 앱 시작 시 localStorage에서 스크립트 불러오기
+    // 앱 시작 시 파일 시스템과 localStorage에서 스크립트 불러오기
     try {
-      const savedScriptsRaw = localStorage.getItem(SCRIPTS_STORAGE_KEY);
-      if (savedScriptsRaw) {
-          const savedScripts = JSON.parse(savedScriptsRaw);
-          if (Array.isArray(savedScripts) && savedScripts.length > 0) {
-            setScripts(savedScripts);
-            addLog('저장된 스크립트를 성공적으로 불러왔습니다.', 'SUCCESS');
-          }
+      // 먼저 파일 시스템에서 로드 시도
+      const fileScripts = loadScripts();
+      if (fileScripts && fileScripts.length > 0) {
+        setScripts(fileScripts);
+        addLog(`파일 시스템에서 ${fileScripts.length}개의 스크립트를 불러왔습니다.`, 'SUCCESS');
+      } else {
+        // 파일 시스템에 없으면 localStorage에서 로드
+        const savedScriptsRaw = localStorage.getItem(SCRIPTS_STORAGE_KEY);
+        if (savedScriptsRaw) {
+            const savedScripts = JSON.parse(savedScriptsRaw);
+            if (Array.isArray(savedScripts) && savedScripts.length > 0) {
+              setScripts(savedScripts);
+              addLog(`localStorage에서 ${savedScripts.length}개의 스크립트를 불러왔습니다.`, 'SUCCESS');
+            }
+        }
       }
     } catch (error) {
         addLog('저장된 스크립트를 불러오는 데 실패했습니다.', 'ERROR');
-        localStorage.removeItem(SCRIPTS_STORAGE_KEY); // 손상된 데이터 정리
+        console.error('Script loading error:', error);
     }
 
   }, [addLog]);
