@@ -168,6 +168,38 @@ export const loadScripts = (): Script[] => {
       const content = fs.readFileSync(filePath, 'utf8');
       try {
         const script = JSON.parse(content);
+
+        // 실제 파일이 존재하는지 확인하고 Scene 상태 복원
+        if (script.scenes && Array.isArray(script.scenes)) {
+          script.scenes = script.scenes.map((scene: any) => {
+            const imagePath = path.join(dataPath, 'images', script.id, `scene_${scene.id}.jpg`);
+            const audioPath = path.join(dataPath, 'audio', script.id, `scene_${scene.id}.mp3`);
+
+            // 이미지 파일이 존재하면 상태를 'done'으로 설정
+            if (fs.existsSync(imagePath)) {
+              scene.imageUrl = imagePath;
+              scene.imageState = 'done';
+            } else {
+              scene.imageState = scene.imageState || 'pending';
+            }
+
+            // 오디오 파일이 존재하면 상태를 'done'으로 설정
+            if (fs.existsSync(audioPath)) {
+              scene.audioUrl = audioPath;
+              scene.audioState = 'done';
+
+              // duration이 없으면 기본값 설정 (실제로는 오디오 파일에서 읽어야 함)
+              if (!scene.duration) {
+                scene.duration = 10; // 기본값 10초
+              }
+            } else {
+              scene.audioState = scene.audioState || 'pending';
+            }
+
+            return scene;
+          });
+        }
+
         scripts.push(script);
       } catch (error) {
         console.error('Error parsing script file:', file, error);
