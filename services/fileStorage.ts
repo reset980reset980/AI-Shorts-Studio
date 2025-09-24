@@ -25,13 +25,34 @@ if (typeof window !== 'undefined') {
       const remote = electronWindow.require('@electron/remote');
       app = remote ? remote.app : null;
 
-      // 실제 파일 시스템 테스트
-      if (fs && path && app) {
-        const testPath = path.join(app.getPath('userData'), 'test.txt');
+      // 프로젝트 경로 설정
+      // Electron에서 실행 중이면 앱 경로를 기준으로 data 폴더 찾기
+      if (app) {
+        // 개발 모드: 프로젝트 루트 사용
+        // 프로덕션: exe 파일 위치 기준
+        const isDev = !app.isPackaged;
+        if (isDev) {
+          // 개발 모드에서는 프로젝트 루트 직접 사용
+          console.log('📁 Development mode - using project root');
+        } else {
+          // 프로덕션 모드에서는 exe 파일 위치 사용
+          console.log('📦 Production mode - using app path');
+        }
+      }
+
+      // 실제 파일 시스템 테스트 - 프로젝트 data 폴더에서
+      if (fs && path) {
+        const projectDataPath = path.join(process.cwd(), 'data', 'test.txt');
         try {
-          fs.writeFileSync(testPath, 'test');
-          fs.unlinkSync(testPath);
-          console.log('✅ File system write test successful!');
+          // data 폴더 생성
+          const dataDir = path.join(process.cwd(), 'data');
+          if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+          }
+
+          fs.writeFileSync(projectDataPath, 'test');
+          fs.unlinkSync(projectDataPath);
+          console.log('✅ File system write test successful in project data folder!');
         } catch (e) {
           console.error('❌ File system write test failed:', e);
         }
@@ -42,7 +63,7 @@ if (typeof window !== 'undefined') {
         path: !!path,
         Buffer: !!Buffer,
         app: !!app,
-        userData: app ? app.getPath('userData') : 'N/A'
+        cwd: process.cwd()
       });
     } catch (error) {
       console.error('✗ Failed to load Electron modules:', error);
@@ -58,21 +79,33 @@ if (typeof window !== 'undefined') {
 
 // Get base data directory
 const getDataPath = () => {
-  if (app && path) {
-    // Electron 환경 - userData 디렉토리 사용
-    const userDataPath = app.getPath('userData');
-    const dataPath = path.join(userDataPath, 'data');
-    console.log('Data path (Electron):', dataPath);
-    return dataPath;
-  } else if (path) {
-    // Node.js 환경 - 프로젝트 루트의 data 폴더
-    const dataPath = path.join(process.cwd(), 'data');
-    console.log('Data path (Node):', dataPath);
+  if (path && fs) {
+    // 항상 프로젝트 루트의 data 폴더 사용
+    // Electron과 Node.js 모두 동일한 경로
+
+    // Windows에서 명확한 경로 설정
+    // D:\ai-shorts-studio\AI-Shorts-Studio\data
+    const projectRoot = 'D:\\ai-shorts-studio\\AI-Shorts-Studio';
+    const dataPath = path.join(projectRoot, 'data');
+
+    console.log('📂 Using project data path:', dataPath);
+
+    // data 폴더가 없으면 생성
+    if (!fs.existsSync(dataPath)) {
+      try {
+        fs.mkdirSync(dataPath, { recursive: true });
+        console.log('✅ Created data directory:', dataPath);
+      } catch (error) {
+        console.error('❌ Failed to create data directory:', error);
+      }
+    }
+
     return dataPath;
   } else {
-    // 브라우저 환경 (개발용)
-    console.log('Using localStorage (browser environment)');
-    return './data';
+    // 브라우저 환경 - 파일 저장 불가
+    console.error('❌ File system not available - cannot save files locally');
+    console.log('💡 Run with Electron to enable local file storage');
+    return null;
   }
 };
 
@@ -97,13 +130,12 @@ const generateId = () => {
 
 // Save script to file
 export const saveScript = (script: Script): string => {
-  if (!fs || !path) {
-    console.warn('File system not available, using localStorage');
-    localStorage.setItem(`script_${script.id}`, JSON.stringify(script));
+  const dataPath = getDataPath();
+  if (!fs || !path || !dataPath) {
+    console.error('Cannot save script - file system not available');
     return script.id;
   }
 
-  const dataPath = getDataPath();
   const scriptPath = path.join(dataPath, 'scripts');
   ensureDir(scriptPath);
 
@@ -119,22 +151,11 @@ export const saveScript = (script: Script): string => {
 
 // Load all scripts
 export const loadScripts = (): Script[] => {
-  if (!fs || !path) {
-    console.warn('File system not available, using localStorage');
-    const scripts: Script[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('script_')) {
-        const scriptData = localStorage.getItem(key);
-        if (scriptData) {
-          scripts.push(JSON.parse(scriptData));
-        }
-      }
-    }
-    return scripts;
-  }
-
   const dataPath = getDataPath();
+  if (!fs || !path || !dataPath) {
+    console.error('Cannot load scripts - file system not available');
+    return [];
+  }
   const scriptPath = path.join(dataPath, 'scripts');
   ensureDir(scriptPath);
 
@@ -182,14 +203,11 @@ export const loadScript = (scriptId: string): Script | null => {
 
 // Save image from base64
 export const saveImage = (base64Data: string, scriptId: string, sceneId: number): string => {
-  if (!fs || !path) {
-    // localStorage는 이미지 파일에 적합하지 않음 (용량 제한)
-    console.error('File system not available for image storage');
-    console.warn('Image will remain in memory only (not persisted)');
+  const dataPath = getDataPath();
+  if (!fs || !path || !dataPath) {
+    console.error('Cannot save image - file system not available');
     return base64Data; // 원본 데이터 반환
   }
-
-  const dataPath = getDataPath();
   const imagePath = path.join(dataPath, 'images', scriptId);
   ensureDir(imagePath);
 
@@ -212,14 +230,11 @@ export const saveImage = (base64Data: string, scriptId: string, sceneId: number)
 
 // Save audio from URL or base64
 export const saveAudio = async (audioUrl: string, scriptId: string, sceneId: number): Promise<string> => {
-  if (!fs || !path) {
-    // localStorage는 오디오 파일에 적합하지 않음 (용량 제한)
-    console.error('File system not available for audio storage');
-    console.warn('Audio will remain in memory only (not persisted)');
+  const dataPath = getDataPath();
+  if (!fs || !path || !dataPath) {
+    console.error('Cannot save audio - file system not available');
     return audioUrl; // 원본 URL 반환
   }
-
-  const dataPath = getDataPath();
   const audioPath = path.join(dataPath, 'audio', scriptId);
   ensureDir(audioPath);
 
