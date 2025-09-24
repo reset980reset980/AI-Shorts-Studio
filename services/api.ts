@@ -480,10 +480,22 @@ export const startVideoRender = async (script: Script, settings: Settings): Prom
         }
 
         const relativePath = filePath.substring(dataIndex).replace(/\\/g, '/');
-        const baseUrl = settings.shotstackUrl.endsWith('/')
-            ? settings.shotstackUrl.slice(0, -1)
-            : settings.shotstackUrl;
-        return `${baseUrl}/${relativePath}`;
+
+        // Ensure the URL has a protocol
+        let baseUrl = settings.shotstackUrl;
+        if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+            // If ngrok-free.app domain, use https
+            if (baseUrl.includes('ngrok-free.app') || baseUrl.includes('ngrok.io')) {
+                baseUrl = `https://${baseUrl}`;
+            } else {
+                baseUrl = `http://${baseUrl}`;
+            }
+        }
+
+        baseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+        const finalUrl = `${baseUrl}/${relativePath}`;
+        console.log(`Converted path: ${filePath} -> ${finalUrl}`);
+        return finalUrl;
     };
 
     // 캐시 버스팅 함수
@@ -568,7 +580,12 @@ export const startVideoRender = async (script: Script, settings: Settings): Prom
         }
     };
 
-    const response = await fetch(`${settings.shotstackUrl}/render`, {
+    console.log('Sending to Shotstack API with payload:', JSON.stringify(payload, null, 2));
+
+    // Shotstack API 엔드포인트 (파일 서버 URL과 다름)
+    const SHOTSTACK_API_URL = 'https://api.shotstack.io/stage';
+
+    const response = await fetch(`${SHOTSTACK_API_URL}/render`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -577,7 +594,16 @@ export const startVideoRender = async (script: Script, settings: Settings): Prom
         body: JSON.stringify(payload)
     });
 
-    const data = await response.json();
+    const responseText = await response.text();
+    console.log('Shotstack response:', responseText);
+
+    let data;
+    try {
+        data = JSON.parse(responseText);
+    } catch (e) {
+        console.error('Failed to parse Shotstack response:', e);
+        throw new Error(`Shotstack API 응답 파싱 실패: ${responseText}`);
+    }
 
     if (!response.ok) {
         throw new Error(`Shotstack API 에러 (${response.status}): ${JSON.stringify(data)}`);
@@ -592,7 +618,10 @@ export const getRenderStatus = async (renderId: string, settings: Settings): Pro
         throw new Error("Shotstack API Key가 설정되지 않았습니다.");
     }
 
-    const response = await fetch(`${settings.shotstackUrl}/render/${renderId}`, {
+    // Shotstack API 엔드포인트 (파일 서버 URL과 다름)
+    const SHOTSTACK_API_URL = 'https://api.shotstack.io/stage';
+
+    const response = await fetch(`${SHOTSTACK_API_URL}/render/${renderId}`, {
         method: 'GET',
         headers: {
             'x-api-key': settings.shotstackApiKey

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>localStorage 정리</title>
+</head>
+<body>
+    <h1>AI Shorts Studio - localStorage 정리</h1>
+    <p>이 페이지를 localhost:5173에서 실행하면 localStorage가 정리됩니다.</p>
+
+    <button onclick="cleanLocalStorage()">localStorage 정리하기</button>
+    <button onclick="showLocalStorage()">현재 localStorage 보기</button>
+
+    <pre id="output"></pre>
+
+    <script>
+    function cleanLocalStorage() {
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (
+                key.startsWith('ai_shorts_studio') ||
+                key.startsWith('script_') ||
+                key.startsWith('project_') ||
+                key.startsWith('image_') ||
+                key.startsWith('audio_') ||
+                key.startsWith('video_')
+            )) {
+                keysToRemove.push(key);
+            }
+        }
+
+        keysToRemove.forEach(key => {
+            localStorage.removeItem(key);
+            console.log('Removed:', key);
+        });
+
+        document.getElementById('output').textContent =
+            `정리 완료! ${keysToRemove.length}개의 항목을 삭제했습니다.\n\n` +
+            keysToRemove.join('\n');
+    }
+
+    function showLocalStorage() {
+        const items = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            const value = localStorage.getItem(key);
+            items.push(`${key}: ${value.substring(0, 100)}...`);
+        }
+
+        document.getElementById('output').textContent =
+            `현재 localStorage (${items.length}개 항목):\n\n` + items.join('\n');
+    }
+
+    // 페이지 로드 시 현재 상태 표시
+    window.onload = showLocalStorage;
+    </script>
+</body>
+</html>

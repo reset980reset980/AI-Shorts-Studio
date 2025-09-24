@@ -1,0 +1,6 @@
+version: "2"
+authtoken: cr_2ww5Qph00Nmx2sUMxdMuKb8lr8r
+tunnels:
+  file-server:
+    addr: 5900
+    proto: http

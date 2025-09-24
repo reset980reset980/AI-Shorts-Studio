@@ -103,11 +103,17 @@ const App: React.FC = () => {
     try {
       // 먼저 파일 시스템에서 로드 시도
       const fileScripts = loadScripts();
+      console.log('File system scripts:', fileScripts);
+
       if (fileScripts && fileScripts.length > 0) {
         setScripts(fileScripts);
         addLog(`파일 시스템에서 ${fileScripts.length}개의 스크립트를 불러왔습니다.`, 'SUCCESS');
+
+        // 파일 시스템 데이터로 localStorage 업데이트 (브라우저와 동기화)
+        localStorage.setItem(SCRIPTS_STORAGE_KEY, JSON.stringify(fileScripts));
       } else {
-        // 파일 시스템에 없으면 localStorage에서 로드
+        // 파일 시스템에 접근할 수 없거나 비어있으면 localStorage에서 로드
+        addLog('파일 시스템에 접근할 수 없습니다. localStorage를 확인합니다.', 'INFO');
         const savedScriptsRaw = localStorage.getItem(SCRIPTS_STORAGE_KEY);
         if (savedScriptsRaw) {
             const savedScripts = JSON.parse(savedScriptsRaw);
