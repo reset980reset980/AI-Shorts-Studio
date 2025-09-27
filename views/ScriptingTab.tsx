@@ -79,12 +79,12 @@ export const ScriptingTab: React.FC<ScriptingTabProps> = ({ addLog, setScripts, 
     setIsLoading(true);
     addLog('YouTube Shorts 대본 생성 시작...');
     try {
-      const { generateScriptFromText } = await import('../services/api');
-      // Use the corrected text as the shorts title
-      const generatedScript = await generateScriptFromText(inputText, outputText, settings);
-      const newScript: Script = { ...generatedScript, id: Date.now().toString(), status: 'pending' };
-      setScripts(prevScripts => [...prevScripts, newScript]);
-      addLog('대본 생성 완료. 영상편집 탭으로 이동합니다.', 'SUCCESS');
+      const { generateScriptWithScenarioId } = await import('../services/api');
+      // Use the corrected text as the shorts title and generate with scenario ID
+      const generatedScript = await generateScriptWithScenarioId(inputText, outputText, settings);
+      setScripts(prevScripts => [...prevScripts, generatedScript]);
+      addLog(`대본 생성 완료. 시나리오 ID: ${generatedScript.scenarioId}`, 'SUCCESS');
+      addLog('영상편집 탭으로 이동합니다.', 'SUCCESS');
       setActiveTab('영상편집');
     } catch (error: any) {
       const errorMessage = error instanceof Error ? error.message : String(error);

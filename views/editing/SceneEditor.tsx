@@ -5,6 +5,8 @@ import { Modal } from '../../components/Modal';
 
 interface SceneEditorProps {
   scene: Scene;
+  sceneIndex: number;
+  scenarioId?: string;
   addLog: (message: string, type?: 'INFO' | 'ERROR' | 'SUCCESS') => void;
   onUpdate: (scene: Scene) => void;
   settings: Settings | null;
@@ -17,7 +19,7 @@ const LoadingSpinner: React.FC = () => (
     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
 );
 
-export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdate, settings, onImageClick, playingSceneId, setPlayingSceneId }) => {
+export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, sceneIndex, scenarioId, addLog, onUpdate, settings, onImageClick, playingSceneId, setPlayingSceneId }) => {
   const [editedScript, setEditedScript] = useState(scene.script);
   const [editedPrompt, setEditedPrompt] = useState(scene.imagePrompt);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -64,11 +66,26 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdat
     }
   };
 
-  const handleSelectSuggestedImage = (imageUrl: string) => {
-    onUpdate({ ...scene, imageUrl, imageState: 'done' });
-    setIsImageSelectionModalOpen(false);
-    addLog(`[씬 ${scene.id}] 새 이미지를 선택했습니다.`, 'SUCCESS');
+  const handleSelectSuggestedImage = async (imageUrl: string) => {
+    try {
+      // If scenarioId exists, save the selected image to folder
+      if (scenarioId && settings?.googleApiKey) {
+        const { saveScenarioImage } = await import('../../services/scenarioManager');
+        await saveScenarioImage(scenarioId, sceneIndex, imageUrl);
+        addLog(`[씬 ${scene.id}] 이미지가 폴더에 저장되었습니다.`, 'SUCCESS');
+      }
+
+      onUpdate({ ...scene, imageUrl, imageState: 'done' });
+      setIsImageSelectionModalOpen(false);
+      addLog(`[씬 ${scene.id}] 새 이미지를 선택했습니다.`, 'SUCCESS');
+    } catch (error) {
+      console.error('Failed to save image to folder:', error);
+      // Still update the UI even if folder save fails
+      onUpdate({ ...scene, imageUrl, imageState: 'done' });
+      setIsImageSelectionModalOpen(false);
+    }
   };
+
 
   const handleImageUploadClick = () => {
     fileInputRef.current?.click();
@@ -96,9 +113,31 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdat
     addLog(`[씬 ${scene.id}] 음성 생성 시작 (MiniMax)...`);
     onUpdate({ ...scene, audioState: 'generating' });
     try {
-      const { audioUrl, duration } = await generateAudioForScene(editedScript, settings.minimaxJwt, settings.voiceModel);
+      // Pass scenarioId and sceneIndex if available for folder storage
+      const { audioUrl, audioData, duration } = await generateAudioForScene(
+        editedScript,
+        settings.minimaxJwt,
+        settings.voiceModel,
+        scenarioId,
+        sceneIndex
+      );
       addLog(`[씬 ${scene.id}] 음성 생성 완료 (길이: ${duration.toFixed(2)}s).`, 'SUCCESS');
-      onUpdate({ ...scene, script: editedScript, imagePrompt: editedPrompt, audioUrl, duration, audioState: 'done' });
+
+      // Save to folder if scenarioId exists
+      if (scenarioId) {
+        addLog(`[씬 ${scene.id}] 음성 파일이 폴더에 저장되었습니다.`, 'SUCCESS');
+      }
+
+      onUpdate({
+        ...scene,
+        script: editedScript,
+        imagePrompt: editedPrompt,
+        audioUrl,
+        audioData,
+        duration,
+        audioDuration: duration,
+        audioState: 'done'
+      });
     } catch (error: any) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       addLog(`[씬 ${scene.id}] 음성 생성 실패: ${errorMessage}`, 'ERROR');
@@ -143,8 +182,8 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({ scene, addLog, onUpdat
                   ) : null}
             </div>
             <div className="flex space-x-2">
-                <button 
-                  onClick={handleShowImageSuggestions} 
+                <button
+                  onClick={handleShowImageSuggestions}
                   disabled={isImageLoading || isGeneratingSuggestions}
                   className="flex-1 px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 rounded-md disabled:bg-gray-500 flex items-center justify-center"
                 >

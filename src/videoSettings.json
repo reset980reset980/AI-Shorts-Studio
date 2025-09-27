@@ -1,0 +1,13 @@
+{
+  "backgroundImage": "blob:http://116.41.203.98:5173/e0eefc8f-de76-49e5-807b-162cddce577f",
+  "backgroundMusic": "blob:http://116.41.203.98:5173/12f9ce3b-a6b3-4c33-930f-bcc2a5c37a81",
+  "subtitleFont": "blob:http://116.41.203.98:5173/cf9218f8-dd51-4749-827d-52c85b06cd94",
+  "subtitleFontName": "CustomFont",
+  "subtitleStyle": {
+    "fontSize": 24,
+    "fontColor": "#FFFFFF",
+    "fontBold": true,
+    "backgroundColor": "#000000",
+    "backgroundOpacity": 0.5
+  }
+}

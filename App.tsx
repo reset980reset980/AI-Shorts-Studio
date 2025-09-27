@@ -9,9 +9,36 @@ import { LogViewer } from './components/LogViewer';
 import type { Tab, LogEntry, Script, Settings } from './types';
 import { TABS } from './constants';
 import { Header } from './components/Header';
-import { getSettings, saveSettings } from './services/api';
+import { getSettings, repairScriptsAudio } from './services/api';
+import { loadSettings as loadSettingsFromFile, saveSettings as saveSettingsToFile, loadAsset } from './services/fileSystem';
 
-const SCRIPTS_STORAGE_KEY = 'ai_shorts_studio_scripts';
+// Helper functions for script storage - Backend only, no localStorage
+const saveScriptsToBackend = async (scripts: Script[]): Promise<boolean> => {
+  try {
+    const response = await fetch('/api/save-scripts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scripts })
+    });
+    return response.ok;
+  } catch (error) {
+    console.error('Failed to save scripts to backend:', error);
+    return false;
+  }
+};
+
+const loadScriptsFromBackend = async (): Promise<Script[]> => {
+  try {
+    const response = await fetch('/api/load-scripts');
+    if (response.ok) {
+      const { scripts } = await response.json();
+      return Array.isArray(scripts) ? scripts : [];
+    }
+  } catch (error) {
+    console.error('Failed to load scripts from backend:', error);
+  }
+  return [];
+};
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('대본입력');
@@ -88,8 +115,33 @@ const App: React.FC = () => {
     addLog('AI Shorts Studio가 시작되었습니다.');
     const loadInitialSettings = async () => {
         try {
-            const fetchedSettings = await getSettings();
-            setSettings(fetchedSettings);
+            // First try to load saved settings from JSON files
+            const savedSettings = await loadSettingsFromFile();
+
+            // Get default settings
+            const defaultSettings = await getSettings();
+
+            // Merge saved settings with defaults
+            const mergedSettings = { ...defaultSettings, ...savedSettings };
+
+            // Load assets from folders if they exist
+            try {
+                const headerAsset = await loadAsset('header');
+                if (headerAsset) mergedSettings.backgroundImage = headerAsset;
+
+                const bgmAsset = await loadAsset('bgm');
+                if (bgmAsset) mergedSettings.backgroundMusic = bgmAsset;
+
+                const fontAsset = await loadAsset('font');
+                if (fontAsset) {
+                    mergedSettings.subtitleFont = fontAsset;
+                    mergedSettings.subtitleFontName = 'CustomFont';
+                }
+            } catch (assetError) {
+                console.log('Some assets could not be loaded:', assetError);
+            }
+
+            setSettings(mergedSettings);
             addLog('설정을 성공적으로 불러왔습니다.', 'SUCCESS');
         } catch (error) {
             addLog('설정 로딩 실패.', 'ERROR');
@@ -97,37 +149,72 @@ const App: React.FC = () => {
     };
     loadInitialSettings();
 
-    // 앱 시작 시 localStorage에서 스크립트 불러오기
-    try {
-      const savedScriptsRaw = localStorage.getItem(SCRIPTS_STORAGE_KEY);
-      if (savedScriptsRaw) {
-          const savedScripts = JSON.parse(savedScriptsRaw);
-          if (Array.isArray(savedScripts) && savedScripts.length > 0) {
-            setScripts(savedScripts);
-            addLog('저장된 스크립트를 성공적으로 불러왔습니다.', 'SUCCESS');
+    // Load scripts from backend only - no localStorage
+    const loadInitialScripts = async () => {
+      try {
+        // Load scripts from backend
+        const scripts = await loadScriptsFromBackend();
+
+        if (scripts.length > 0) {
+          // Repair any scripts with missing/invalid audio URLs
+          try {
+            const repairedScripts = await repairScriptsAudio(scripts);
+            setScripts(repairedScripts);
+            // Save repaired scripts back to backend
+            await saveScriptsToBackend(repairedScripts);
+            addLog(`${repairedScripts.length}개 스크립트를 백엔드에서 로딩하고 복구했습니다.`, 'SUCCESS');
+          } catch (repairError) {
+            console.error('Script repair failed:', repairError);
+            setScripts(scripts); // Use original scripts if repair fails
+            addLog('스크립트를 로딩했지만 일부 복구에 실패했습니다.', 'ERROR');
           }
+        } else {
+          addLog('저장된 스크립트가 없습니다.', 'INFO');
+        }
+      } catch (error) {
+        console.error('Failed to load scripts:', error);
+        addLog('스크립트 로딩 중 오류가 발생했습니다.', 'ERROR');
       }
-    } catch (error) {
-        addLog('저장된 스크립트를 불러오는 데 실패했습니다.', 'ERROR');
-        localStorage.removeItem(SCRIPTS_STORAGE_KEY); // 손상된 데이터 정리
-    }
+    };
+
+    // Disabled auto-loading old scripts - use new scenario system instead
+    // loadInitialScripts();
 
   }, [addLog]);
 
+  // Disabled auto-saving to scripts.json - new scenario system saves to individual folders
+  // useEffect(() => {
+  //   if (scripts.length === 0) return; // Don't save empty arrays on initial load
+
+  //   const saveScripts = async () => {
+  //     try {
+  //       const success = await saveScriptsToBackend(scripts);
+  //       if (success) {
+  //         console.log(`Scripts persisted to backend: ${scripts.length} scripts`);
+  //       } else {
+  //         addLog('백엔드 스크립트 저장에 실패했습니다.', 'ERROR');
+  //       }
+  //     } catch (error) {
+  //       console.error('Failed to save scripts:', error);
+  //       addLog('스크립트 저장 중 오류가 발생했습니다.', 'ERROR');
+  //     }
+  //   };
+
+  //   saveScripts();
+  // }, [scripts, addLog]);
 
   const handleSettingsUpdate = async (newSettings: Partial<Settings>) => {
       if (!settings) return;
-      
+
       const updatedSettings = { ...settings, ...newSettings };
       setSettings(updatedSettings); // Optimistic update
 
       try {
-          await saveSettings(newSettings);
-          addLog('설정이 원격으로 저장되었습니다.', 'SUCCESS');
+          await saveSettingsToFile(updatedSettings);
+          // Don't log here - SettingsTab already logs the specific success message
       } catch (error) {
-          addLog('설정 저장 실패.', 'ERROR');
-          // Optional: Revert to previous state if save fails
-          // setSettings(settings); 
+          console.error('Settings save error:', error);
+          addLog('설정 저장 중 오류가 발생했습니다.', 'ERROR');
       }
   };
 

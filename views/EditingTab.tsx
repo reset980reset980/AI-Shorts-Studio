@@ -1,10 +1,91 @@
-import React, { useState, useEffect, useRef } from 'react';
-import type { Script, Scene, Settings } from '../types';
+import React, { useState, useEffect, useRef, ErrorInfo } from 'react';
+import type { Script, Scene, Settings, ScriptStatus } from '../types';
 import { Card } from '../components/Card';
 import { SceneEditor } from './editing/SceneEditor';
-import { generateImageForScene, generateAudioForScene, delay, startVideoRender, getRenderStatus, regenerateImagePrompts } from '../services/api';
+import { generateImageForScene, generateAudioForScene, delay, startVideoRender, getRenderStatus, regenerateImagePrompts, repairScriptsAudio, repairScriptsImages, repairScenarioImageUrls, repairScenarioAudioUrls, saveScenario, saveRepairedScripts } from '../services/api';
+import { createScenario, loadScenario, getAllScenarios, saveScenarioImage, saveScenarioAudio } from '../services/scenarioManager';
+import { generateAndSaveSrt } from '../services/srtGenerator';
 
-const SCRIPTS_STORAGE_KEY = 'ai_shorts_studio_scripts';
+// Error Boundary Component for critical sections
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode; onError?: (error: Error, errorInfo: ErrorInfo) => void },
+  { hasError: boolean; error?: Error }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('ErrorBoundary caught an error:', error);
+    console.error('Error info:', errorInfo);
+    this.props.onError?.(error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="bg-red-900/20 border border-red-500 rounded-lg p-4 m-4">
+          <h3 className="text-red-400 font-bold mb-2">오류가 발생했습니다</h3>
+          <p className="text-red-300 mb-3">
+            예기치 않은 오류가 발생했습니다. 페이지를 새로고침해주세요.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-md text-white font-semibold"
+            >
+              페이지 새로고침
+            </button>
+            <button
+              onClick={() => this.setState({ hasError: false, error: undefined })}
+              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-md text-white font-semibold"
+            >
+              다시 시도
+            </button>
+          </div>
+          {this.state.error && (
+            <details className="mt-3">
+              <summary className="text-red-400 cursor-pointer">오류 세부사항</summary>
+              <pre className="text-xs text-red-300 mt-2 p-2 bg-red-900/30 rounded overflow-x-auto">
+                {this.state.error.toString()}
+                {this.state.error.stack && '\n\n' + this.state.error.stack}
+              </pre>
+            </details>
+          )}
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// Utility function to save scripts to backend
+async function saveScriptsToBackend(scripts: Script[]) {
+  try {
+    const response = await fetch('/api/save-scripts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ scripts }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to save scripts: ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error saving scripts to backend:', error);
+    throw error;
+  }
+}
 
 interface ImageLightboxProps {
   isOpen: boolean;
@@ -81,10 +162,16 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
   const [isRecorrecting, setIsRecorrecting] = useState<boolean>(false);
   const [lightboxState, setLightboxState] = useState<{isOpen: boolean; currentIndex: number}>({ isOpen: false, currentIndex: 0 });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
-  
+
   const [playingSceneId, setPlayingSceneId] = useState<number | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement>(null);
   const pollingIntervals = useRef<Record<string, NodeJS.Timeout>>({});
+
+  // Error boundary callback
+  const handleErrorBoundary = (error: Error, errorInfo: ErrorInfo) => {
+    addLog(`치명적인 오류가 발생했습니다: ${error.message}`, 'ERROR');
+    console.error('Critical error in EditingTab:', error, errorInfo);
+  };
 
   const selectedScript = scripts.find(s => s.id === selectedScriptId);
   
@@ -100,6 +187,9 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [hasUnsavedChanges]);
+
+  // Removed auto-load to prevent crashes
+  // Users should use the "시나리오 폴더 동기화" button instead
 
   useEffect(() => {
       const audio = audioPlayerRef.current;
@@ -136,7 +226,13 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
           }
           return s;
         });
-        localStorage.setItem(SCRIPTS_STORAGE_KEY, JSON.stringify(newScripts));
+
+        // Save to backend instead of localStorage
+        saveScriptsToBackend(newScripts).catch(error => {
+          console.error('Failed to save scripts to backend:', error);
+          addLog('스크립트 저장에 실패했습니다.', 'ERROR');
+        });
+
         return newScripts;
       });
   };
@@ -181,13 +277,45 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
     };
   }, [scripts, settings, addLog]);
 
-  const handleSaveChanges = () => {
+  const handleSaveChanges = async () => {
     try {
-      localStorage.setItem(SCRIPTS_STORAGE_KEY, JSON.stringify(scripts));
+      // Validate scripts data before saving
+      if (!scripts || !Array.isArray(scripts)) {
+        addLog('저장할 스크립트 데이터가 유효하지 않습니다.', 'ERROR');
+        return;
+      }
+
+      // Save to backend instead of localStorage
+      await saveScriptsToBackend(scripts);
       setHasUnsavedChanges(false);
       addLog('모든 변경사항이 성공적으로 저장되었습니다.', 'SUCCESS');
-    } catch (error) {
-      addLog('변경사항을 로컬 저장소에 저장하는 데 실패했습니다.', 'ERROR');
+
+      // Try to save scenarios to files asynchronously (best effort)
+      try {
+        scripts.forEach(script => {
+          if (script && script.scenes && Array.isArray(script.scenes) && script.scenes.length > 0) {
+            saveScenario(script).catch(err => {
+              console.log(`Scenario file save for ${script.title || script.shorts_title || 'unknown'} skipped:`, err?.message || err);
+            });
+          }
+        });
+      } catch (scenarioError: any) {
+        console.log('Scenario saving error (non-critical):', scenarioError);
+        // Don't show error to user as this is optional functionality
+      }
+
+    } catch (error: any) {
+      console.error('Save error details:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Provide specific error messages
+      if (errorMessage.includes('quota') || errorMessage.includes('QuotaExceededError')) {
+        addLog('로컬 저장소가 꽉 찬 상태입니다. 오래된 데이터를 삭제하고 다시 시도해주세요.', 'ERROR');
+      } else if (errorMessage.includes('security') || errorMessage.includes('SecurityError')) {
+        addLog('보안 설정으로 인해 저장에 실패했습니다. 브라우저 설정을 확인해주세요.', 'ERROR');
+      } else {
+        addLog(`저장 중 오류 발생: ${errorMessage}`, 'ERROR');
+      }
     }
   };
 
@@ -209,7 +337,13 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
   const handleDeleteScript = (scriptId: string) => {
     setScripts(prevScripts => {
         const newScripts = prevScripts.filter(s => s.id !== scriptId);
-        localStorage.setItem(SCRIPTS_STORAGE_KEY, JSON.stringify(newScripts));
+
+        // Save to backend instead of localStorage
+        saveScriptsToBackend(newScripts).catch(error => {
+          console.error('Failed to save scripts after deletion:', error);
+          addLog('스크립트 삭제 후 저장에 실패했습니다.', 'ERROR');
+        });
+
         return newScripts;
     });
     addLog('스크립트가 삭제되었습니다.', 'SUCCESS');
@@ -219,30 +353,130 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
   };
 
   const handleStartRender = async (scriptId: string) => {
-    const scriptToRender = scripts.find(s => s.id === scriptId);
-    if (!scriptToRender || !settings) {
-      addLog(`렌더링할 스크립트를 찾을 수 없거나 설정이 로드되지 않았습니다: ${scriptId}`, 'ERROR');
-      return;
-    }
-
-    const isReady = scriptToRender.scenes.every(s => s.imageState === 'done' && s.audioState === 'done' && s.duration && s.duration > 0);
-    if (!isReady) {
-      addLog(`[${scriptToRender.title}] 모든 씬의 이미지와 음원(및 길이 정보)이 생성되어야 영상 합성이 가능합니다.`, 'ERROR');
-      addLog('먼저 편집 화면으로 들어가서 모든 리소스를 생성해주세요.', 'INFO');
-      return;
-    }
-    
-    addLog(`[${scriptToRender.title}] 영상 합성 프로세스를 시작합니다.`, 'INFO');
-    updateScriptState(scriptId, s => ({ ...s, status: 'rendering', renderId: undefined }));
-
     try {
+      let scriptToRender = scripts.find(s => s.id === scriptId);
+      if (!scriptToRender || !settings) {
+        addLog(`렌더링할 스크립트를 찾을 수 없거나 설정이 로드되지 않았습니다: ${scriptId}`, 'ERROR');
+        return;
+      }
+
+      // Force reload the script data to ensure we have the latest audioDuration info
+      addLog(`[${scriptToRender.title}] 최신 데이터를 확인하는 중...`, 'INFO');
+      if (scriptToRender.scenarioId) {
+        try {
+          const reloadedScript = await loadScenario(scriptToRender.scenarioId);
+          if (reloadedScript) {
+            // Update the script in our scripts array with the latest data
+            const updatedScripts = scripts.map(s =>
+              s.id === scriptId ? { ...reloadedScript, id: scriptId, status: scriptToRender!.status } : s
+            );
+            setScripts(updatedScripts);
+            scriptToRender = updatedScripts.find(s => s.id === scriptId) || scriptToRender;
+            addLog(`[${scriptToRender.title}] 최신 데이터 로드 완료`, 'SUCCESS');
+          }
+        } catch (reloadError) {
+          addLog(`데이터 재로드 중 오류 발생, 기존 데이터를 사용합니다: ${reloadError}`, 'WARNING');
+        }
+      }
+
+      // Check if all scenes have the necessary resources (imageUrl, audioUrl, audioDuration)
+      // Don't check imageState/audioState as they might not be set for loaded scripts
+      const isReady = scriptToRender.scenes.every(s =>
+        s.imageUrl && s.audioUrl && s.audioDuration && s.audioDuration > 0
+      );
+
+      if (!isReady) {
+        // More detailed error message
+        const missingResources = scriptToRender.scenes.map((s, index) => {
+          const missing = [];
+          if (!s.imageUrl) missing.push('이미지');
+          if (!s.audioUrl) missing.push('음원');
+          if (!s.audioDuration || s.audioDuration <= 0) missing.push('음원 길이');
+
+          if (missing.length > 0) {
+            return `씬 ${index + 1}: ${missing.join(', ')} 없음`;
+          }
+          return null;
+        }).filter(Boolean);
+
+        addLog(`[${scriptToRender.title}] 다음 리소스가 필요합니다:`, 'ERROR');
+        missingResources.forEach(msg => addLog(msg, 'ERROR'));
+        addLog('먼저 편집 화면으로 들어가서 필요한 리소스를 생성해주세요.', 'INFO');
+        return;
+      }
+
+      addLog(`[${scriptToRender.title}] 영상 합성 프로세스를 시작합니다.`, 'INFO');
+
+      // Wrap state update in try-catch to prevent crashes
+      try {
+        updateScriptState(scriptId, s => ({ ...s, status: 'rendering', renderId: undefined }));
+      } catch (stateError) {
+        console.error('Failed to update state before render:', stateError);
+      }
+
       const renderId = await startVideoRender(scriptToRender, settings);
+
       addLog(`[${scriptToRender.title}] 영상 합성 요청이 성공적으로 전송되었습니다. 상태 확인을 시작합니다. Render ID: ${renderId}`, 'SUCCESS');
-      updateScriptState(scriptId, s => ({ ...s, status: 'rendering', renderId: renderId }));
+
+      // Wrap state update in try-catch to prevent crashes
+      try {
+        updateScriptState(scriptId, s => ({ ...s, status: 'rendering', renderId: renderId }));
+      } catch (stateError) {
+        console.error('Failed to update state after render:', stateError);
+      }
+
+      // Start polling for render status
+      const checkInterval = setInterval(async () => {
+        try {
+          const { checkRenderStatus, downloadAndSaveVideo } = await import('../services/api');
+          const renderStatus = await checkRenderStatus(renderId, settings);
+
+          addLog(`[${scriptToRender.title}] 렌더링 상태: ${renderStatus.status}`, 'INFO');
+
+          if (renderStatus.status === 'done' && renderStatus.url) {
+            clearInterval(checkInterval);
+
+            // Download and save the video
+            addLog(`[${scriptToRender.title}] 영상 다운로드 중...`, 'INFO');
+            const savedPath = await downloadAndSaveVideo(renderStatus.url, scriptToRender.scenarioId || scriptToRender.id);
+
+            // Update script with video URL and status
+            updateScriptState(scriptId, s => ({
+              ...s,
+              status: 'ready',
+              videoUrl: renderStatus.url,
+              videoPath: savedPath
+            }));
+
+            // Save to localStorage to persist the state
+            const updatedScripts = scripts.map(s =>
+              s.id === scriptId ? { ...s, status: 'ready', videoUrl: renderStatus.url, videoPath: savedPath } : s
+            );
+            localStorage.setItem('generatedScripts', JSON.stringify(updatedScripts));
+
+            addLog(`[${scriptToRender.title}] 영상 합성 완료! 영상이 저장되었습니다.`, 'SUCCESS');
+          } else if (renderStatus.status === 'failed') {
+            clearInterval(checkInterval);
+            updateScriptState(scriptId, s => ({ ...s, status: 'error' }));
+            addLog(`[${scriptToRender.title}] 영상 합성 실패!`, 'ERROR');
+          }
+        } catch (error) {
+          console.error('Error checking render status:', error);
+        }
+      }, 5000); // Check every 5 seconds
     } catch (error: any) {
+      console.error('Render error details:', error);
+      console.error('Error stack:', error.stack);
+
       const errorMessage = error instanceof Error ? error.message : String(error);
-      addLog(`영상 합성 요청 중 치명적인 오류 발생: ${errorMessage}`, 'ERROR');
-      updateScriptState(scriptId, s => ({ ...s, status: 'error' }));
+      addLog(`영상 합성 요청 중 오류 발생: ${errorMessage}`, 'ERROR');
+
+      // Make sure to reset the status even if there's an error
+      try {
+        updateScriptState(scriptId, s => ({ ...s, status: 'error' }));
+      } catch (updateError) {
+        console.error('Failed to update script state:', updateError);
+      }
     }
   };
   
@@ -268,9 +502,19 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
         scenes: s.scenes.map((scene): Scene => scenesToProcess.find(p => p.id === scene.id) ? { ...scene, imageState: 'generating' } : scene)
     }));
 
-    const processScene = async (scene: Scene) => {
+    const processScene = async (scene: Scene, sceneIndex: number) => {
         try {
-            const imageUrl = await generateImageForScene(scene.imagePrompt, settings.googleApiKey);
+            let imageUrl: string;
+
+            // Use scenario-based generation if scenarioId is available
+            if (script.scenarioId) {
+                // Generate image with scenario ID for direct saving to scenario structure
+                imageUrl = await generateImageForScene(scene.imagePrompt, settings.googleApiKey, script.scenarioId, sceneIndex);
+            } else {
+                // Fallback to original method
+                imageUrl = await generateImageForScene(scene.imagePrompt, settings.googleApiKey);
+            }
+
             addLog(`[씬 ${scene.id}] 이미지 생성 성공.`, 'SUCCESS');
             return { sceneId: scene.id, imageUrl, success: true, error: null };
         } catch (error: any) {
@@ -281,44 +525,81 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
     };
     
     if (settings.imageGenerationMode === 'parallel') {
-        const batchSize = 3; // 한 번에 3개씩 처리
-        for (let i = 0; i < scenesToProcess.length; i += batchSize) {
-            const batch = scenesToProcess.slice(i, i + batchSize);
-            addLog(`[${script.shorts_title}] 이미지 생성 중... (그룹 ${Math.floor(i/batchSize) + 1}/${Math.ceil(scenesToProcess.length / batchSize)})`, 'INFO');
+        const results = await Promise.all(scenesToProcess.map((scene, index) => processScene(scene, index)));
+        
+        updateScriptState(selectedScriptId, s => ({
+            ...s,
+            scenes: s.scenes.map((scene): Scene => {
+                const result = results.find(r => r.sceneId === scene.id);
+                if (result) {
+                    return { ...scene, imageUrl: result.imageUrl, imageState: result.success ? 'done' : 'error' };
+                }
+                return scene;
+            })
+        }));
 
-            const results = await Promise.all(batch.map(processScene));
+        // Auto-save after parallel image generation
+        try {
+            const updatedScripts = scripts.map(s => {
+                if (s.id === selectedScriptId) {
+                    return {
+                        ...s,
+                        scenes: s.scenes.map((scene): Scene => {
+                            const result = results.find(r => r.sceneId === scene.id);
+                            if (result) {
+                                return { ...scene, imageUrl: result.imageUrl, imageState: result.success ? 'done' : 'error' };
+                            }
+                            return scene;
+                        })
+                    };
+                }
+                return s;
+            });
 
-            // 각 배치가 완료될 때마다 상태 업데이트
-            updateScriptState(selectedScriptId, s => ({
-                ...s,
-                scenes: s.scenes.map(scene => {
-                    const result = results.find(r => r.sceneId === scene.id);
-                    if (result) {
-                        return { ...scene, imageUrl: result.imageUrl, imageState: result.success ? 'done' : 'error' };
-                    }
-                    return scene;
-                })
-            }));
-            
-            // 마지막 배치가 아니면 API 속도 제한을 위해 대기
-            if (i + batchSize < scenesToProcess.length) {
-                addLog(`API 속도 제한 준수를 위해 20초 대기...`, 'INFO');
-                await delay(20000); 
-            }
+            // Save to backend instead of localStorage
+            await saveScriptsToBackend(updatedScripts);
+            setHasUnsavedChanges(false);
+            console.log('Auto-saved after parallel image generation');
+        } catch (saveError) {
+            console.error('Auto-save failed:', saveError);
         }
-    } else { // sequential
-        for (const scene of scenesToProcess) {
-            const result = await processScene(scene);
 
-            updateScriptState(selectedScriptId, s => ({
-                ...s,
-                scenes: s.scenes.map(sc => {
-                    if (sc.id === result.sceneId) {
-                        return { ...sc, imageUrl: result.imageUrl, imageState: result.success ? 'done' : 'error' };
-                    }
-                    return sc;
-                })
-            }));
+    } else { // sequential
+        for (let i = 0; i < scenesToProcess.length; i++) {
+            const scene = scenesToProcess[i];
+            const result = await processScene(scene, i);
+
+            try {
+                setScripts(prevScripts => {
+                    const newScripts = prevScripts.map(s => {
+                        if (s.id !== selectedScriptId) return s;
+                        return {
+                            ...s,
+                            scenes: s.scenes.map(sc => {
+                                if (sc.id === result.sceneId) {
+                                    return { ...sc, imageUrl: result.imageUrl, imageState: result.success ? 'done' : 'error' };
+                                }
+                                return sc;
+                            })
+                        };
+                    });
+
+                    // Auto-save after each image in sequential mode (non-blocking)
+                    saveScriptsToBackend(newScripts)
+                        .then(() => {
+                            console.log(`Auto-saved after image generation for scene ${result.sceneId}`);
+                        })
+                        .catch((saveError: any) => {
+                            console.error('Auto-save failed:', saveError);
+                            // Don't prevent the operation, just log the error
+                        });
+
+                    return newScripts;
+                });
+                setHasUnsavedChanges(false);
+            } catch (stateError: any) {
+                console.error('Failed to update sequential image result:', stateError);
+            }
 
             if (scenesToProcess.indexOf(scene) < scenesToProcess.length - 1) {
               await delay(5000);
@@ -349,24 +630,55 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
         scenes: s.scenes.map((scene): Scene => scenesToProcess.find(p => p.id === scene.id) ? { ...scene, audioState: 'generating' } : scene)
     }));
 
-    for (const scene of scenesToProcess) {
+    for (let i = 0; i < scenesToProcess.length; i++) {
+        const scene = scenesToProcess[i];
         try {
-            const { audioUrl, duration } = await generateAudioForScene(scene.script, settings.minimaxJwt, settings.voiceModel);
+            let audioUrl: string, audioData: string, duration: number;
+
+            // Use scenario-based generation if scenarioId is available
+            if (script.scenarioId) {
+                // Generate audio with scenario ID for direct saving to scenario structure
+                ({ audioUrl, audioData, duration } = await generateAudioForScene(scene.script, settings.minimaxJwt, settings.voiceModel, script.scenarioId, i));
+            } else {
+                // Fallback to original method
+                ({ audioUrl, audioData, duration } = await generateAudioForScene(scene.script, settings.minimaxJwt, settings.voiceModel));
+            }
+
             addLog(`[씬 ${scene.id}] 음원 생성 성공 (길이: ${duration.toFixed(2)}s).`, 'SUCCESS');
-            
-            setScripts(prevScripts => prevScripts.map(s => {
-                if (s.id !== selectedScriptId) return s;
-                return {
-                    ...s,
-                    scenes: s.scenes.map(sc => sc.id === scene.id ? { ...sc, audioUrl, duration, audioState: 'done' } : sc)
-                };
-            }));
-            setHasUnsavedChanges(true);
+
+            setScripts(prevScripts => {
+                const newScripts = prevScripts.map(s => {
+                    if (s.id !== selectedScriptId) return s;
+                    return {
+                        ...s,
+                        scenes: s.scenes.map(sc => sc.id === scene.id ? {
+                            ...sc,
+                            audioUrl,
+                            audioData,
+                            duration,
+                            audioDuration: duration, // For SRT generation
+                            audioState: 'done'
+                        } : sc)
+                    };
+                });
+
+                // Auto-save when audio is generated (non-blocking)
+                saveScriptsToBackend(newScripts)
+                    .then(() => {
+                        console.log(`Auto-saved after audio generation for scene ${scene.id}`);
+                    })
+                    .catch((saveError) => {
+                        console.error('Auto-save failed:', saveError);
+                    });
+
+                return newScripts;
+            });
+            setHasUnsavedChanges(false);
 
         } catch (error: any) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             addLog(`[씬 ${scene.id}] 음원 생성 실패: ${errorMessage}`, 'ERROR');
-            
+
             setScripts(prevScripts => prevScripts.map(s => {
                 if (s.id !== selectedScriptId) return s;
                 return {
@@ -378,6 +690,20 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
         }
     }
     addLog(`[${script.shorts_title}] 일괄 음원 생성이 완료되었습니다.`, 'SUCCESS');
+
+    // Automatically generate SRT file if scenario ID exists and all audio is complete
+    if (script.scenarioId) {
+        const allAudioComplete = script.scenes.every(scene => scene.audioState === 'success' && scene.audioDuration && scene.audioDuration > 0);
+        if (allAudioComplete) {
+            try {
+                const srtPath = await generateAndSaveSrt(script.scenarioId, script.scenes);
+                addLog(`[${script.shorts_title}] SRT 자막 파일이 자동 생성되었습니다: ${srtPath}`, 'SUCCESS');
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                addLog(`SRT 자막 파일 생성 실패: ${errorMessage}`, 'ERROR');
+            }
+        }
+    }
   };
 
   const handleAiRecorrection = async () => {
@@ -438,55 +764,208 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
     setLightboxState(prev => ({ ...prev, currentIndex: Math.max(prev.currentIndex - 1, 0) }));
   };
 
-  const handleClearAllScripts = () => {
+  const handleClearAllScripts = async () => {
     if (window.confirm('정말로 모든 스크립트를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
       setScripts([]);
-      localStorage.removeItem(SCRIPTS_STORAGE_KEY);
-      addLog('모든 스크립트가 영구적으로 삭제되었습니다.', 'SUCCESS');
+
+      // Save empty array to backend instead of removing localStorage
+      try {
+        await saveScriptsToBackend([]);
+        addLog('모든 스크립트가 영구적으로 삭제되었습니다.', 'SUCCESS');
+      } catch (error) {
+        console.error('Failed to clear scripts on backend:', error);
+        addLog('스크립트 삭제 중 오류가 발생했습니다.', 'ERROR');
+      }
+    }
+  };
+
+  const handleRepairAudioUrls = async () => {
+    try {
+      addLog('음원 URL 복구를 시작합니다...', 'INFO');
+      // Use new repair function for scenario system
+      const repairedScripts = await repairScenarioAudioUrls(scripts);
+      setScripts(repairedScripts);
+
+      addLog('음원 URL 복구가 완료되었습니다.', 'SUCCESS');
+    } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      addLog(`음원 URL 복구 중 오류 발생: ${errorMessage}`, 'ERROR');
+    }
+  };
+
+  const handleRepairImageUrls = async () => {
+    try {
+      addLog('이미지 URL 복구를 시작합니다...', 'INFO');
+      // Use new repair function for scenario system
+      const repairedScripts = await repairScenarioImageUrls(scripts);
+      setScripts(repairedScripts);
+
+      addLog('이미지 URL 복구가 완료되었습니다.', 'SUCCESS');
+    } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      addLog(`이미지 URL 복구 중 오류 발생: ${errorMessage}`, 'ERROR');
+    }
+  };
+
+  const handleGenerateSrt = async () => {
+    if (!selectedScript?.scenarioId) {
+      addLog('시나리오 ID가 없어 SRT 파일을 생성할 수 없습니다.', 'ERROR');
+      return;
+    }
+
+    try {
+      addLog(`[${selectedScript.shorts_title}] SRT 자막 파일 생성 시작...`, 'INFO');
+
+      // Check if all scenes have audio duration
+      const scenesWithoutDuration = selectedScript.scenes.filter(scene => !scene.audioDuration || scene.audioDuration <= 0);
+      if (scenesWithoutDuration.length > 0) {
+        addLog(`일부 씬에 음원 길이 정보가 없습니다. 먼저 모든 씬의 음원을 생성해주세요.`, 'ERROR');
+        return;
+      }
+
+      const srtPath = await generateAndSaveSrt(selectedScript.scenarioId, selectedScript.scenes);
+      addLog(`[${selectedScript.shorts_title}] SRT 자막 파일이 생성되었습니다: ${srtPath}`, 'SUCCESS');
+    } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      addLog(`SRT 파일 생성 중 오류 발생: ${errorMessage}`, 'ERROR');
+    }
+  };
+
+  const handleSyncScenariosFolder = async () => {
+    try {
+      addLog('시나리오 폴더 동기화를 시작합니다...', 'INFO');
+
+      // Use new API endpoint for new scenario system
+      const response = await fetch('/api/list-scenarios-new');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.scenarios && data.scenarios.length > 0) {
+          const currentScripts = scripts;
+          const newScripts = [...currentScripts];
+          let addedCount = 0;
+
+          data.scenarios.forEach((scenario: any) => {
+            if (scenario.scripts && Array.isArray(scenario.scripts)) {
+              scenario.scripts.forEach((script: Script) => {
+                const existingIndex = newScripts.findIndex(s => s.id === script.id);
+                if (existingIndex === -1) {
+                  // Ensure audio states are properly set
+                  const fixedScript = {
+                    ...script,
+                    scenes: script.scenes.map(scene => ({
+                      ...scene,
+                      audioState: scene.audioUrl ? 'done' : 'pending',
+                      imageState: scene.imageUrl ? 'done' : 'pending'
+                    }))
+                  };
+                  newScripts.push(fixedScript);
+                  addedCount++;
+                  addLog(`[${script.shorts_title}] 시나리오를 불러왔습니다.`, 'SUCCESS');
+                }
+              });
+            }
+          });
+
+          // Always repair URLs for all scripts (both new and existing)
+          addLog('이미지 URL을 불러오는 중...', 'INFO');
+          const scriptsWithImages = await repairScenarioImageUrls(newScripts);
+          addLog('이미지 URL 복구 완료!', 'SUCCESS');
+
+          addLog('음원 URL을 불러오는 중...', 'INFO');
+          const scriptsWithAudio = await repairScenarioAudioUrls(scriptsWithImages);
+          addLog('음원 URL 및 길이 정보 복구 완료!', 'SUCCESS');
+
+          // Save the repaired scripts back to scenario files
+          addLog('복구된 데이터를 시나리오 파일에 저장 중...', 'INFO');
+          await saveRepairedScripts(scriptsWithAudio);
+          addLog('시나리오 파일 저장 완료!', 'SUCCESS');
+
+          setScripts(scriptsWithAudio);
+
+          // Update selectedScript if it matches one of the repaired scripts
+          if (selectedScript) {
+            const updatedSelectedScript = scriptsWithAudio.find(script =>
+              script.scenarioId === selectedScript.scenarioId ||
+              script.title === selectedScript.title
+            );
+            if (updatedSelectedScript) {
+              setSelectedScript(updatedSelectedScript);
+              addLog('현재 선택된 스크립트도 업데이트되었습니다.', 'SUCCESS');
+            }
+          }
+
+          if (addedCount > 0) {
+            addLog(`총 ${addedCount}개의 시나리오를 폴더에서 불러왔습니다.`, 'SUCCESS');
+          } else {
+            addLog('폴더에 새로운 시나리오가 없습니다. 기존 시나리오 미디어를 복구했습니다.', 'INFO');
+          }
+        } else {
+          addLog('시나리오 폴더가 비어있습니다.', 'INFO');
+        }
+      }
+    } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      addLog(`시나리오 폴더 동기화 중 오류 발생: ${errorMessage}`, 'ERROR');
     }
   };
 
   if (!selectedScript) {
     return (
-      <Card title="영상 편집 목록">
-        {scripts.length === 0 ? (
-          <p className="text-center text-gray-400">먼저 '대본입력' 탭에서 대본을 생성해주세요.</p>
-        ) : (
+      <ErrorBoundary onError={handleErrorBoundary}>
+        <Card title="영상 편집 목록">
           <div className="space-y-3">
-            <div className="flex justify-end space-x-2 mb-4">
-                <button
-                    onClick={handleSaveChanges}
-                    disabled={!hasUnsavedChanges}
-                    className="px-4 py-2 text-sm font-semibold bg-green-600 hover:bg-green-700 rounded-md disabled:bg-gray-500 disabled:cursor-not-allowed"
-                >
-                    {hasUnsavedChanges ? '모든 변경사항 저장' : '저장 완료'}
-                </button>
-                <button onClick={handleClearAllScripts} className="px-4 py-2 text-sm font-semibold bg-red-600 hover:bg-red-700 rounded-md">전체 삭제</button>
+            <div className="flex justify-end space-x-2 mb-4 flex-wrap gap-2">
+                <button onClick={handleSyncScenariosFolder} className="px-4 py-2 text-sm font-semibold bg-green-600 hover:bg-green-700 rounded-md">시나리오 폴더 동기화</button>
+                {scripts.length > 0 && (
+                  <>
+                    <button
+                        onClick={handleSaveChanges}
+                        disabled={!hasUnsavedChanges}
+                        className="px-4 py-2 text-sm font-semibold bg-green-600 hover:bg-green-700 rounded-md disabled:bg-gray-500 disabled:cursor-not-allowed"
+                    >
+                        {hasUnsavedChanges ? '모든 변경사항 저장' : '저장 완료'}
+                    </button>
+                    <button onClick={handleRepairImageUrls} className="px-4 py-2 text-sm font-semibold bg-purple-600 hover:bg-purple-700 rounded-md">이미지 URL 복구</button>
+                    <button onClick={handleRepairAudioUrls} className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 rounded-md">음원 URL 복구</button>
+                    <button onClick={handleClearAllScripts} className="px-4 py-2 text-sm font-semibold bg-red-600 hover:bg-red-700 rounded-md">전체 삭제</button>
+                  </>
+                )}
             </div>
-            {scripts.map(script => (
-              <div key={script.id} className="bg-[#1a1f2e] p-4 rounded-lg border border-gray-700 flex justify-between items-center">
-                <div>
-                  <h3 className="font-bold text-lg">{script.shorts_title}</h3>
-                  <p className="text-sm text-gray-400">{script.scenes.length} 씬</p>
-                  {script.videoUrl && script.status === 'ready' && <a href={script.videoUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-cyan-400 hover:underline">영상 보기</a>}
-                </div>
-                <div className="flex items-center space-x-3">
-                  <StatusBadge status={script.status} />
-                  <button onClick={() => setSelectedScriptId(script.id)} className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 rounded-md">편집</button>
-                  <button onClick={() => handleStartRender(script.id)} className="px-4 py-2 text-sm font-semibold bg-emerald-500 hover:bg-emerald-600 rounded-md disabled:bg-gray-500 disabled:cursor-not-allowed" disabled={script.status === 'rendering' || script.status === 'ready'}>영상 합성</button>
-                  <button onClick={() => handleDeleteScript(script.id)} className="px-4 py-2 text-sm font-semibold bg-gray-600 hover:bg-gray-700 rounded-md">삭제</button>
-                </div>
+            {scripts.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-400 mb-4">저장된 시나리오가 없습니다.</p>
+                <p className="text-gray-500 text-sm mb-2">위의 '시나리오 폴더 동기화' 버튼을 클릭하여 시나리오를 불러오거나</p>
+                <p className="text-gray-500 text-sm">'대본입력' 탭에서 새로운 대본을 생성해주세요.</p>
               </div>
-            ))}
+            ) : (
+              <>
+                {scripts.map(script => (
+                  <div key={script.id} className="bg-[#1a1f2e] p-4 rounded-lg border border-gray-700 flex justify-between items-center">
+                    <div>
+                      <h3 className="font-bold text-lg">{script.shorts_title}</h3>
+                      <p className="text-sm text-gray-400">{script.scenes.length} 씬</p>
+                      {script.videoUrl && script.status === 'ready' && <a href={script.videoUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-cyan-400 hover:underline">영상 보기</a>}
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <StatusBadge status={script.status} />
+                      <button onClick={() => setSelectedScriptId(script.id)} className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 rounded-md">편집</button>
+                      <button onClick={() => handleStartRender(script.id)} className="px-4 py-2 text-sm font-semibold bg-emerald-500 hover:bg-emerald-600 rounded-md disabled:bg-gray-500 disabled:cursor-not-allowed" disabled={script.status === 'rendering' || script.status === 'ready'}>영상 합성</button>
+                      <button onClick={() => handleDeleteScript(script.id)} className="px-4 py-2 text-sm font-semibold bg-gray-600 hover:bg-gray-700 rounded-md">삭제</button>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
-        )}
-      </Card>
+        </Card>
+      </ErrorBoundary>
     );
   }
 
   return (
-    <div>
-        <audio ref={audioPlayerRef} style={{ display: 'none' }} onEnded={() => setPlayingSceneId(null)} />
+    <ErrorBoundary onError={handleErrorBoundary}>
+      <div>
+          <audio ref={audioPlayerRef} style={{ display: 'none' }} onEnded={() => setPlayingSceneId(null)} />
         <div className="bg-[#2a3142] p-4 rounded-lg shadow-md mb-6">
             <div className="flex justify-between items-start">
                 <div>
@@ -527,22 +1006,30 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
                     <button onClick={handleAiRecorrection} disabled={isRecorrecting} className="px-4 py-2 font-semibold bg-teal-500 hover:bg-teal-600 rounded-md disabled:bg-gray-500">
                       {isRecorrecting ? '보정중...' : 'AI 재보정'}
                     </button>
+                    {selectedScript.scenarioId && (
+                        <button onClick={handleGenerateSrt} className="px-4 py-2 font-semibold bg-orange-600 hover:bg-orange-700 rounded-md">
+                          SRT 자막 생성
+                        </button>
+                    )}
                 </div>
             </div>
         </div>
 
         <div className="space-y-4">
             {selectedScript.scenes.map((scene, index) => (
-                <SceneEditor 
-                    key={scene.id} 
-                    scene={scene} 
-                    addLog={addLog} 
-                    onUpdate={handleSceneUpdate}
-                    settings={settings}
-                    onImageClick={() => openLightbox(index)}
-                    playingSceneId={playingSceneId}
-                    setPlayingSceneId={setPlayingSceneId}
-                />
+                <ErrorBoundary key={scene.id} onError={handleErrorBoundary}>
+                    <SceneEditor
+                        scene={scene}
+                        sceneIndex={index}
+                        scenarioId={selectedScript.scenarioId}
+                        addLog={addLog}
+                        onUpdate={handleSceneUpdate}
+                        settings={settings}
+                        onImageClick={() => openLightbox(index)}
+                        playingSceneId={playingSceneId}
+                        setPlayingSceneId={setPlayingSceneId}
+                    />
+                </ErrorBoundary>
             ))}
         </div>
 
@@ -555,6 +1042,7 @@ export const EditingTab: React.FC<EditingTabProps> = ({ addLog, scripts, setScri
             hasNext={lightboxState.currentIndex < selectedScript.scenes.length - 1}
             hasPrev={lightboxState.currentIndex > 0}
         />
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 };

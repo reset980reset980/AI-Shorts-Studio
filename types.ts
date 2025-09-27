@@ -13,7 +13,9 @@ export interface Scene {
   imagePrompt: string;
   imageUrl?: string;
   audioUrl?: string;
+  audioData?: string; // Store raw hex audio data for reconstruction
   duration?: number; // 음원 길이를 초 단위로 저장
+  audioDuration?: number; // Audio duration in seconds (for SRT generation)
   imageState: 'pending' | 'generating' | 'done' | 'error';
   audioState: 'pending' | 'generating' | 'done' | 'error';
 }
@@ -22,6 +24,7 @@ export type ScriptStatus = 'pending' | 'rendering' | 'ready' | 'error';
 
 export interface Script {
   id: string; // Added for list management
+  scenarioId?: string; // YouTube-style unique ID (e.g., "2B6GHA4d0Jc")
   channel: string;
   title: string;
   shorts_title: string;
@@ -30,6 +33,9 @@ export interface Script {
   status: ScriptStatus;
   renderId?: string; // Shotstack 렌더링 ID
   videoUrl?: string; // 완성된 비디오 URL
+  description?: string; // Video description
+  createdAt?: number; // Creation timestamp
+  updatedAt?: number; // Last update timestamp
 }
 
 export interface YouTubeChannel {
@@ -68,6 +74,9 @@ export interface Settings {
   googleApiKey: string;
   shotstackApiKey: string;
   shotstackUrl: string;
+  localServerUrl?: string; // Local server URL for serving assets (e.g., http://192.168.1.100:5901)
+  externalIp?: string; // External IP address (stored in ip_config.json)
+  serverPort?: string; // Server port (stored in ip_config.json)
   backgroundImage?: string; // Data URL for the image
   backgroundMusic?: string; // Data URL for the audio
   subtitleFont?: string; // Data URL for the font

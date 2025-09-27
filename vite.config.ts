@@ -12,6 +12,16 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
+      },
+      server: {
+        host: '0.0.0.0',  // Listen on all network interfaces
+        port: 5173,
+        proxy: {
+          '/api': {
+            target: 'http://localhost:5900',
+            changeOrigin: true,
+          }
+        }
       }
     };
 });

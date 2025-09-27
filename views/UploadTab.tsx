@@ -328,4 +328,18 @@ export const UploadTab: React.FC<UploadTabProps> = ({ addLog, settings, updateSe
                                 {item.status === 'done' && <span className="text-green-400">완료</span>}
                                 {item.status === 'error' && <span className="text-red-400">실패</span>}
                                 {item.status === 'uploading' && (
-                                    <div className="
+                                    <div className="text-blue-400">업로드중...</div>
+                                )}
+                            </td>
+                            <td className="p-2 text-gray-400 text-sm">{item.error || '-'}</td>
+                        </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        )}
+    </div>
+    );
+};
+
+export default UploadTab;

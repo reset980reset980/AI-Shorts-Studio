@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../components/Card';
 import type { Settings } from '../types';
+import { saveSettings, loadSettings, loadAsset } from '../services/fileSystem';
 
 interface SettingsTabProps {
   addLog: (message: string, type?: 'INFO' | 'ERROR' | 'SUCCESS') => void;
@@ -52,13 +53,43 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
     setLocalSettings(prev => ({ ...prev, ...updates }));
   };
   
-  const handleSave = (fields: (keyof Settings)[], message: string) => {
+  const handleSave = async (fields: (keyof Settings)[], message: string) => {
     const settingsToUpdate: Partial<Settings> = {};
     fields.forEach(field => {
         settingsToUpdate[field] = localSettings[field] as any;
     });
+
+    // updateSettings will handle the saving and logging
     updateSettings(settingsToUpdate);
     addLog(message, 'SUCCESS');
+  };
+
+  const handleSaveIpConfig = async () => {
+    try {
+        const ipConfig = {
+            externalIp: localSettings.externalIp || '116.41.203.98',
+            serverPort: localSettings.serverPort || '5901'
+        };
+
+        // Save IP configuration
+        const response = await fetch('/api/save-ip-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ipConfig)
+        });
+
+        if (response.ok) {
+            // Update localServerUrl in settings
+            const localServerUrl = `http://${ipConfig.externalIp}:${ipConfig.serverPort}`;
+            updateSettings({ localServerUrl });
+            addLog(`IP 설정이 저장되었습니다: ${localServerUrl}`, 'SUCCESS');
+        } else {
+            throw new Error('Failed to save IP config');
+        }
+    } catch (error) {
+        console.error('Error saving IP config:', error);
+        addLog('IP 설정 저장 실패', 'ERROR');
+    }
   };
 
   const openApiPage = (apiName: string, url: string) => {
@@ -162,9 +193,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label className="block text-sm font-medium mb-1">대본생성 프롬프트 (ssul.prompt.json)</label>
-                    <textarea 
-                        rows={2} 
-                        className="w-full p-2 bg-[#1a1f2e] border border-gray-600 rounded-md" 
+                    <textarea
+                        rows={2}
+                        className="w-full p-2 bg-[#1a1f2e] border border-gray-600 rounded-md"
                         placeholder="자주, 관상, 천문 예측가처럼 작성해줘."
                         value={localSettings.shellPrompt}
                         onChange={(e) => handleLocalChange({ shellPrompt: e.target.value })}
@@ -173,14 +204,41 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
                 </div>
                 <div>
                     <label className="block text-sm font-medium mb-1">유튜브 태그 (youtube_tag.json)</label>
-                    <textarea 
-                        rows={2} 
-                        className="w-full p-2 bg-[#1a1f2e] border border-gray-600 rounded-md" 
+                    <textarea
+                        rows={2}
+                        className="w-full p-2 bg-[#1a1f2e] border border-gray-600 rounded-md"
                         placeholder="#코멘 #뉴스 #가상화폐 #블록체인 #shorts #BlocksSquare"
                         value={localSettings.youtubeTags}
                         onChange={(e) => handleLocalChange({ youtubeTags: e.target.value })}
                     />
                     <button onClick={() => handleSave(['youtubeTags'], '유튜브 태그가 저장되었습니다.')} className="w-full mt-2 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 rounded-md">유튜브 태그 저장</button>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-sm font-medium mb-1">외부 접속 IP 주소 (ip_config.json)</label>
+                    <div className="space-y-2">
+                        <div className="flex space-x-2">
+                            <input
+                                type="text"
+                                placeholder="예: 116.41.203.98"
+                                className="flex-grow p-2 bg-[#1a1f2e] border border-gray-600 rounded-md"
+                                value={localSettings.externalIp || ''}
+                                onChange={(e) => handleLocalChange({ externalIp: e.target.value })}
+                            />
+                            <input
+                                type="text"
+                                placeholder="포트: 5901"
+                                className="w-24 p-2 bg-[#1a1f2e] border border-gray-600 rounded-md"
+                                value={localSettings.serverPort || '5901'}
+                                onChange={(e) => handleLocalChange({ serverPort: e.target.value })}
+                            />
+                            <button onClick={handleCheckIp} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-md">IP 확인</button>
+                        </div>
+                        <button onClick={() => handleSaveIpConfig()} className="w-full py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 rounded-md">IP 설정 저장</button>
+                        <p className="text-xs text-gray-400">외부에서 접속할 때 사용할 IP와 포트입니다. 자동으로 http://IP:포트 형식으로 변환됩니다.</p>
+                    </div>
                 </div>
             </div>
 
@@ -239,20 +297,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ addLog, settings, upda
                   <button onClick={() => openApiPage('Shotstack', 'https://shotstack.io/')} className="px-4 py-2 text-sm bg-gray-600 hover:bg-gray-700 rounded-md">API 발급</button>
                 </div>
             </div>
-            <div>
-                <label className="block text-sm font-medium mb-1">IP 주소</label>
-                 <div className="flex space-x-2">
-                  <input 
-                    type="text" 
-                    value={localSettings.shotstackUrl}
-                    onChange={(e) => handleLocalChange({ shotstackUrl: e.target.value })}
-                    className="flex-grow p-2 bg-[#1a1f2e] border border-gray-600 rounded-md"
-                    placeholder="https://your-public-domain.com"
-                  />
-                   <button onClick={handleCheckIp} className="px-4 py-2 text-sm bg-gray-600 hover:bg-gray-700 rounded-md shrink-0">IP 확인</button>
-                </div>
-            </div>
-            <button onClick={() => handleSave(['googleApiKey', 'shotstackApiKey', 'shotstackUrl'], 'Google/Shotstack/IP 설정이 저장되었습니다.')} className="w-full mt-4 py-3 font-bold bg-green-600 hover:bg-green-700 rounded-md">Google/Shotstack/IP 설정 저장</button>
+            <button onClick={() => handleSave(['googleApiKey', 'shotstackApiKey', 'shotstackUrl'], 'API 설정이 저장되었습니다.')} className="w-full mt-4 py-3 font-bold bg-green-600 hover:bg-green-700 rounded-md">API 설정 저장</button>
         </div>
       </Card>
 
